@@ -1,5 +1,7 @@
 from core.config import Config
 from core.logger import Logger
+from core.llm import ask_llm
+
 
 
 
@@ -20,8 +22,13 @@ class Jarvis:
 
     def start(self):
         self.logger.info(f"{self.config.name} 启动成功。")
+    
+    def chat(self):
+        user_input = input("You: ")
+        reply = ask_llm(user_input)
+        print(f"Jarvis: {reply}")
 
     def run(self):
         self.initialize()
         self.greet()
-        self.start()
+        self.chat()

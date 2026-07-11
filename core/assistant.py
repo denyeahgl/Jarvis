@@ -1,6 +1,8 @@
 from core.config import Config
 from core.logger import Logger
 from core.llm import chat
+from memory.history import MessageHistory
+
 
 class Jarvis:
     """Jarvis 核心类"""
@@ -8,6 +10,7 @@ class Jarvis:
     def __init__(self):
         self.config = Config()
         self.logger = Logger()
+        self.history = MessageHistory()
     
     def initialize(self):
         self.logger.info(f"{self.config.name} 初始化完成。")
@@ -19,16 +22,20 @@ class Jarvis:
     def start(self):
         self.logger.info(f"{self.config.name} 启动成功。")
     
-    def chat(self, user_input: str):
+    def respond(self, user_input: str):
+        """处理用户输入并生成回复"""
 
-        messages = [
-            {
-                "role": "user",
-                "content": user_input
-            }
-        ]
+        # 保存用户消息
+        self.history.add_user(user_input)
 
-        chat(messages, stream=True)
+        # 调用 LLM
+        response = chat(
+            self.history.get_messages(),
+            stream=True
+        )
+
+        # 保存 Assistant 回复
+        self.history.add_assistant(response)
 
 
     def run(self):
@@ -42,4 +49,4 @@ class Jarvis:
                 print("Jarvis: Goodbye!")
                 break       
 
-            self.chat(user_input)
+            self.respond(user_input)

@@ -28,5 +28,10 @@ class Jarvis:
         self.greet()
 
         while True:
-            user_input = input("你: ")
+            user_input = input("你: ").strip()
+
+            if user_input.lower() in ("exit", "quit"):
+                print("Jarvis: Goodbye!")
+                break       
+
             self.chat(user_input)

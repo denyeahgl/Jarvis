@@ -1,6 +1,6 @@
 from core.config import Config
 from core.logger import Logger
-from core.llm import ask_llm
+from core.llm import stream_llm
 
 class Jarvis:
     """Jarvis 核心类"""
@@ -20,8 +20,7 @@ class Jarvis:
         self.logger.info(f"{self.config.name} 启动成功。")
     
     def chat(self, user_input: str):
-         reply = ask_llm(user_input)
-         print(f"Jarvis: {reply}")
+        stream_llm(user_input)
 
     def run(self):
         self.initialize()

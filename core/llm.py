@@ -18,6 +18,7 @@ client = OpenAI(
     base_url=config.base_url,
 )
 
+
 def ask_llm(prompt: str) -> str:
     """
     向大模型发送请求，并返回回复。
@@ -40,5 +41,36 @@ def ask_llm(prompt: str) -> str:
     )
 
     return response.choices[0].message.content
+
+
+
+def stream_llm(prompt: str) -> None:
+    """
+    向大模型发送请求，并以流式方式输出回复。
+
+    Args:
+        prompt: 用户输入
+    """
+
+    response = client.chat.completions.create(
+        model=config.model_name,
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        stream=True
+    )
+
+    print("Jarvis: ", end="", flush=True)
+
+    for chunk in response:
+        content = chunk.choices[0].delta.content
+
+        if content:
+            print(content, end="", flush=True)
+
+    print()
 
 

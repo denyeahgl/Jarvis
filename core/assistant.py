@@ -1,6 +1,6 @@
 from core.config import Config
 from core.logger import Logger
-from core.llm import stream_llm
+from core.llm import chat
 
 class Jarvis:
     """Jarvis 核心类"""
@@ -20,7 +20,16 @@ class Jarvis:
         self.logger.info(f"{self.config.name} 启动成功。")
     
     def chat(self, user_input: str):
-        stream_llm(user_input)
+
+        messages = [
+            {
+                "role": "user",
+                "content": user_input
+            }
+        ]
+
+        chat(messages, stream=True)
+
 
     def run(self):
         self.initialize()

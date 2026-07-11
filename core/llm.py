@@ -1,12 +1,3 @@
-"""
-LLM 模块
-
-负责：
-- 创建 OpenAI Client
-- 调用大模型
-- 返回模型回复
-"""
-
 from openai import OpenAI
 
 from core.config import Config
@@ -19,58 +10,34 @@ client = OpenAI(
 )
 
 
-def ask_llm(prompt: str) -> str:
+def chat(messages: list, stream: bool = False):
     """
-    向大模型发送请求，并返回回复。
+    调用大模型。
 
     Args:
-        prompt: 用户输入
+        messages: OpenAI 消息列表
+        stream: 是否启用流式输出
 
     Returns:
-        模型返回的文本
+        非流式返回字符串；
+        流式直接输出。
     """
 
     response = client.chat.completions.create(
         model=config.model_name,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
+        messages=messages,
+        stream=stream,
     )
 
-    return response.choices[0].message.content
-
-
-
-def stream_llm(prompt: str) -> None:
-    """
-    向大模型发送请求，并以流式方式输出回复。
-
-    Args:
-        prompt: 用户输入
-    """
-
-    response = client.chat.completions.create(
-        model=config.model_name,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        stream=True
-    )
+    if not stream:
+        return response.choices[0].message.content
 
     print("Jarvis: ", end="", flush=True)
 
     for chunk in response:
-        content = chunk.choices[0].delta.content
+        delta = chunk.choices[0].delta.content
 
-        if content:
-            print(content, end="", flush=True)
+        if delta:
+            print(delta, end="", flush=True)
 
     print()
-
-

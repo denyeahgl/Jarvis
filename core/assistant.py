@@ -2,6 +2,7 @@ from core.config import Config
 from core.logger import Logger
 from core.llm import chat
 from memory.history import MessageHistory
+from core.prompt import get_system_prompt
 
 
 class Jarvis:
@@ -42,7 +43,13 @@ class Jarvis:
         self.initialize()
         self.greet()
 
+        if not self.history.has_system_message():
+            self.history.add_system(
+                get_system_prompt()
+            )
+
         while True:
+            
             user_input = input("你: ").strip()
 
             if user_input.lower() in ("exit", "quit"):
@@ -50,3 +57,4 @@ class Jarvis:
                 break       
 
             self.respond(user_input)
+            print()

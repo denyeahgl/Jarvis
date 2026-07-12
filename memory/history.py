@@ -34,6 +34,10 @@ class MessageHistory:
         """添加 System Message"""
         self._add_message("system", content)
 
+    def has_system_message(self) -> bool:
+        """检查是否存在 System Message"""
+        return any(msg["role"] == "system" for msg in self.messages)
+    
     def add_user(self, content: str):
         """添加 User Message"""
         self._add_message("user", content)

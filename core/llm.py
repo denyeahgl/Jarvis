@@ -38,12 +38,20 @@ def chat(messages: list, stream: bool = False) -> str:
     reply = []
 
     for chunk in response:
-        delta = chunk.choices[0].delta.content
+        # 有些兼容接口最后会返回 choices=[]（例如 usage chunk）
+        if not chunk.choices:
+            continue
 
-        if delta:
-            print(delta, end="", flush=True)
-            reply.append(delta)
+        choice = chunk.choices[0]
 
-    print()
+        # 有些 chunk 只有 finish_reason，没有 delta
+        if choice.delta is None:
+            continue
 
-    return "".join(reply)
+        delta = choice.delta.content
+
+        if delta is None:
+            continue
+
+        print(delta, end="", flush=True)
+        reply.append(delta)

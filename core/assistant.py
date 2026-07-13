@@ -31,13 +31,14 @@ class Jarvis:
     def start(self):
         self.logger.info(f"{self.config.name} 启动成功。")
 
-    def _chat(self, stream=False, use_tools=False):
+    def _chat(self, stream=False, use_tools=False, return_message=False):
         """统一调用 LLM"""
 
         return chat(
             messages=self.history.get_messages(),
             stream=stream,
             tools=self.registry.get_tool_schemas() if use_tools else None,
+            return_message=return_message,
         )
 
     def _execute_tool_calls(self, assistant_message):
@@ -77,13 +78,13 @@ class Jarvis:
 
         self.history.add_user(user_input)
 
-        # 第一次请求（带 Tool）
-        response = self._chat(
+        # 第一次请求（带 Tool），必须拿完整 message 对象
+        # 才能读取 tool_calls 字段
+        assistant_message = self._chat(
             stream=False,
             use_tools=True,
+            return_message=True,
         )
-
-        assistant_message = response.choices[0].message
 
         # ---------- Tool Calling ----------
         if assistant_message.tool_calls:
@@ -92,7 +93,7 @@ class Jarvis:
                 assistant_message
             )
 
-            # 第二次请求（不给 Tool）
+            # 第二次请求（不给 Tool，流式输出最终回复）
             reply = chat(
                 self.history.get_messages(),
                 stream=True,

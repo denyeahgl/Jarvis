@@ -12,3 +12,6 @@ venv/
 #ENvironment 
 .env
 
+#my Doc
+den/
+tests/

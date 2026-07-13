@@ -3,27 +3,31 @@ history.py
 
 负责管理对话历史（Conversation Memory）。
 
-MessageHistory 是整个 Jarvis 的消息管理器，
-统一维护符合 OpenAI Chat API 格式的 messages 列表。
+MessageHistory 统一维护符合 OpenAI Chat API 格式的 messages。
 """
+
+from copy import deepcopy
 
 
 class MessageHistory:
     """管理对话历史消息"""
 
     def __init__(self):
-        """初始化消息列表"""
         self.messages = []
 
-    def _add_message(self, role: str, content: str):
+    def add_message(self, message: dict):
         """
-        添加一条消息（内部方法）
+        添加一条符合 OpenAI Chat API 格式的 Message。
 
         Args:
-            role: 消息角色（system / user / assistant）
-            content: 消息内容
+            message: Message 字典
         """
-        self.messages.append(
+        self.messages.append(message)
+
+    def _add_text_message(self, role: str, content: str):
+        """添加普通文本消息"""
+
+        self.add_message(
             {
                 "role": role,
                 "content": content,
@@ -31,29 +35,25 @@ class MessageHistory:
         )
 
     def add_system(self, content: str):
-        """添加 System Message"""
-        self._add_message("system", content)
+        self._add_text_message("system", content)
 
     def has_system_message(self) -> bool:
-        """检查是否存在 System Message"""
-        return any(msg["role"] == "system" for msg in self.messages)
-    
+        return any(
+            msg.get("role") == "system"
+            for msg in self.messages
+        )
+
     def add_user(self, content: str):
-        """添加 User Message"""
-        self._add_message("user", content)
+        self._add_text_message("user", content)
 
     def add_assistant(self, content: str):
-        """添加 Assistant Message"""
-        self._add_message("assistant", content)
+        self._add_text_message("assistant", content)
 
-    def get_messages(self):
+    def get_messages(self) -> list[dict]:
         """
-        获取当前全部消息
-
-        返回消息列表的浅拷贝，避免外部直接修改内部数据。
+        返回 Message 副本，避免外部修改内部状态。
         """
-        return self.messages.copy()
+        return deepcopy(self.messages)
 
     def clear(self):
-        """清空所有历史消息"""
         self.messages.clear()

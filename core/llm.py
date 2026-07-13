@@ -10,23 +10,36 @@ client = OpenAI(
 )
 
 
-def chat(messages: list, stream: bool = False) -> str:
+def chat(
+    messages: list,
+    stream: bool = False,
+    tools: list | None = None,
+    tool_choice: str | None = None,
+):
     """
     调用大模型。
 
     Args:
         messages: OpenAI Chat API 消息列表
         stream: 是否启用流式输出
+        tools: Tool Schema 列表
+        tool_choice: Tool Calling 策略
 
     Returns:
-        str: 大模型完整回复
+        str: 大模型完整回复（stream=True 和 False 均返回完整字符串）
     """
 
-    response = client.chat.completions.create(
-        model=config.model_name,
-        messages=messages,
-        stream=stream,
-    )
+    params = {
+        "model": config.model_name,
+        "messages": messages,
+        "stream": stream,
+    }
+
+    if tools:
+        params["tools"] = tools
+        params["tool_choice"] = tool_choice or "auto"
+
+    response = client.chat.completions.create(**params)
 
     # 非流式输出
     if not stream:
@@ -38,13 +51,11 @@ def chat(messages: list, stream: bool = False) -> str:
     reply = []
 
     for chunk in response:
-        # 有些兼容接口最后会返回 choices=[]（例如 usage chunk）
         if not chunk.choices:
             continue
 
         choice = chunk.choices[0]
 
-        # 有些 chunk 只有 finish_reason，没有 delta
         if choice.delta is None:
             continue
 
@@ -55,3 +66,5 @@ def chat(messages: list, stream: bool = False) -> str:
 
         print(delta, end="", flush=True)
         reply.append(delta)
+
+    return "".join(reply)

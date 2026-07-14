@@ -19,15 +19,18 @@ class AgentExecutor:
     """Agent 执行器"""
 
 
-    def __init__(self, max_tool_rounds: int = 8):
+    def __init__(
+        self,
+        registry,
+        max_tool_rounds=8
+    ):
 
-        self.registry = ToolRegistry()
+        self.registry = registry
 
         self.tool_executor = ToolExecutor(
             self.registry
         )
 
-        # 防止模型陷入死循环反复调用工具，做一个轮数上限保护
         self.max_tool_rounds = max_tool_rounds
 
 

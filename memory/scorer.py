@@ -1,109 +1,112 @@
 """
-Memory Scorer
+Memory Scorer 2.0
 
-负责评估一条 Memory 的重要程度。
+考虑：
 
-返回:
-
-0-5
-
-0:
-    不重要
-
-5:
-    非常重要
+1. 内容关键词
+2. Memory类型
+3. 长期价值
 """
 
 
 class MemoryScorer:
-    """
-    Memory 重要性评分器
-    """
 
 
     def __init__(self):
 
-        # 高价值关键词
-        self.high_value_keywords = {
-            "项目",
-            "开发",
-            "Jarvis",
-            "Agent",
-            "代码",
-            "架构",
-            "设计",
-            "计划",
-            "目标",
-            "喜欢",
-            "习惯",
-            "记住",
+
+        self.keyword_scores={
+
+            "Jarvis":3,
+
+            "Agent":2,
+
+            "项目":2,
+
+            "开发":2,
+
+            "架构":2,
+
+            "设计":2,
+
+            "目标":2,
+
+            "计划":2,
+
+
+            "喜欢":1,
+
+            "习惯":1,
+
         }
 
 
-        # 中等价值关键词
-        self.medium_value_keywords = {
-            "学习",
-            "研究",
-            "测试",
-            "尝试",
-            "配置",
-            "环境",
+
+        self.type_scores={
+
+
+            "project":3,
+
+
+            "preference":2,
+
+
+            "skill":2,
+
+
+            "fact":1,
+
+
+            "conversation":0,
+
         }
 
 
 
     def score(
         self,
-        content: str
-    ) -> int:
-        """
-        计算 Memory importance
+        content:str,
+        memory_type:str
+    )->int:
 
-        返回:
-            0-5
-        """
+
 
         if not content:
+
             return 0
 
 
-        text = content.strip()
 
-
-        score = 0
-
-
-
-        # 长度基础评分
-
-        if len(text) > 20:
-            score += 1
-
-
-        if len(text) > 50:
-            score += 1
+        score=0
 
 
 
-        # 高价值关键词
+        # 类型权重
 
-        for keyword in self.high_value_keywords:
-
-            if keyword in text:
-                score += 1
-
-
-
-        # 中价值关键词
-
-        for keyword in self.medium_value_keywords:
-
-            if keyword in text:
-                score += 1
+        score += self.type_scores.get(
+            memory_type,
+            0
+        )
 
 
 
-        # 限制最大值
+        # 关键词权重
+
+        for key,value in self.keyword_scores.items():
+
+            if key in content:
+
+                score+=value
+
+
+
+        # 长度
+
+        if len(content)>20:
+
+            score+=1
+
+
 
         return min(
             score,

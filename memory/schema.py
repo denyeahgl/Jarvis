@@ -9,22 +9,44 @@ from datetime import datetime
 import uuid
 
 
+
 @dataclass
 class MemoryItem:
     """
     一条记忆
+
+    source:
+        memory 来源
+
+        user:
+            用户信息
+
+        assistant:
+            Agent产生的信息
+
+        system:
+            系统知识
     """
+
 
     content: str
 
+
     memory_type: str = "conversation"
 
+
     importance: int = 1
+
+
+    source: str = "user"
+
+
 
     created_at: str = field(
         default_factory=lambda:
         datetime.now().isoformat()
     )
+
 
     id: str = field(
         default_factory=lambda:
@@ -32,33 +54,64 @@ class MemoryItem:
     )
 
 
+
     def to_dict(self):
+
         return {
+
             "id": self.id,
+
             "content": self.content,
+
             "memory_type": self.memory_type,
+
             "importance": self.importance,
+
+            "source": self.source,
+
             "created_at": self.created_at,
+
         }
 
 
+
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(
+        cls,
+        data
+    ):
+
 
         return cls(
+
             content=data["content"],
+
+
             memory_type=data.get(
                 "memory_type",
                 "conversation"
             ),
+
+
             importance=data.get(
                 "importance",
                 1
             ),
+
+
+            source=data.get(
+                "source",
+                "user"
+            ),
+
+
             created_at=data.get(
                 "created_at"
             ),
+
+
             id=data.get(
                 "id"
             )
+
         )

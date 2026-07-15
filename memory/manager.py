@@ -18,6 +18,9 @@ from memory.retriever import MemoryRetriever
 from memory.context import MemoryContextBuilder
 from memory.filter import MemoryFilter
 from memory.scorer import MemoryScorer
+from memory.classifier import MemoryClassifier
+from memory.extractor import MemoryExtractor
+
 
 
 class MemoryManager:
@@ -56,9 +59,11 @@ class MemoryManager:
             retriever=self.retriever
         )
 
+        self.extractor = MemoryExtractor()
         self.filter = MemoryFilter()
-
         self.scorer = MemoryScorer()
+        self.classifier = MemoryClassifier()
+
 
     # =========================
     # Conversation Memory
@@ -186,35 +191,65 @@ class MemoryManager:
     def remember(
         self,
         content: str,
-        memory_type="conversation",
-
     ):
         """
         保存长期记忆
+
+        流程:
+
+        Input
+        |
+        Extractor
+        |
+        Filter
+        |
+        Scorer
+        |
+        Classifier
+        |
+        Store
         """
-        if not self.filter.should_remember(
+
+
+        memories = self.extractor.extract(
             content
-        ):
-            return
-        
-        
-
-        importance = self.scorer.score(content)
-
-        if importance <= 0:
-            return
-
- 
-        memory = MemoryItem(
-            content=content,
-            memory_type=memory_type,
-            importance=importance
         )
 
-        self.store.add(
-            memory
-        )
 
+        for memory_content in memories:
+
+
+            if not self.filter.should_remember(
+                memory_content
+            ):
+                continue
+
+
+            memory_type = self.classifier.classify(
+                memory_content
+            )
+
+            importance = self.scorer.score(
+                memory_content,
+                memory_type
+            )
+
+
+            if importance <= 0:
+                continue
+
+
+            memory = MemoryItem(
+                content=memory_content,
+                memory_type=memory_type,
+                importance=importance,
+                source="user"
+            )
+
+
+            self.store.add(
+                memory
+            )
 
 
     def recall(self):

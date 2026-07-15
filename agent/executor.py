@@ -58,10 +58,7 @@ class AgentExecutor:
                 if self.memory:
                     self.memory.add_assistant(reply)
                     # 保存长期记忆（可选）
-                    self.memory.remember(
-                        reply,
-                        memory_type="conversation",
-                    )
+                    # self.memory.remember(reply)
                 return reply
 
             # 有工具调用：构建 assistant 消息（含 tool_calls）

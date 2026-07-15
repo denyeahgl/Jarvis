@@ -78,7 +78,7 @@ class MemoryContextBuilder:
 
 
         context = (
-            "Relevant memories:\n"
+            "User memories:\n"
             +
             "\n".join(lines)
         )

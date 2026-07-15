@@ -52,7 +52,7 @@ class Jarvis:
         # 2. 持久化用户输入
         self.memory.add_user(user_input)
         # 2.5 将用户输入也存入长期记忆 ← 新增
-        self.memory.remember(user_input, memory_type="conversation")
+        self.memory.remember(user_input)
         # 3. 将当前用户消息追加到临时消息列表（供 LLM 使用）
         messages.append({"role": "user", "content": user_input})
         # 4. 执行 Agent，它会自动持久化 assistant 和 tool 消息

@@ -66,7 +66,7 @@ class MemoryRetriever:
 
             common = query_words & content_words
 
-            score = len(common)
+            score = (len(common)+memory.importance*0.2)
 
 
             if score > 0:

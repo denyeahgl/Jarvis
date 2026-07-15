@@ -157,14 +157,10 @@ class MemoryExtractor:
 
 
         for word in project_words:
-
             if word in text and not text.startswith("用户"):
-
-                return (
-                    "用户"
-                    +
-                    text
-                )
+                if text.startswith("我"):
+                    return "用户" + text[1:]
+                return "用户" + text
 
 
         return text

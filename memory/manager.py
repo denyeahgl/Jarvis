@@ -1,15 +1,15 @@
 """
 manager.py
 
-Memory 管理中心
+Jarvis Memory Manager
 
-负责统一管理:
+负责统一管理：
 
-1. Conversation Memory
-2. Persistent Memory
-3. Memory Context
+1. Conversation Memory（短期记忆）
+2. Long-term Memory（长期记忆）
+3. Memory Retrieval（记忆检索）
+4. Memory Context（上下文构建）
 """
-
 
 from memory.history import MessageHistory
 from memory.store import MemoryStore
@@ -22,258 +22,206 @@ from memory.classifier import MemoryClassifier
 from memory.extractor import MemoryExtractor
 
 
-
 class MemoryManager:
     """
     Jarvis Memory Manager
     """
 
-
     def __init__(self):
 
-        # =========================
-        # Short Term Memory
-        # =========================
+        # ==========================
+        # Short-Term Memory
+        # ==========================
 
         self.history = MessageHistory()
 
-
-
-        # =========================
-        # Long Term Memory
-        # =========================
+        # ==========================
+        # Long-Term Memory
+        # ==========================
 
         self.store = MemoryStore()
-
 
         self.retriever = MemoryRetriever(
             store=self.store
         )
 
-
-        # =========================
-        # Context Layer
-        # =========================
+        # ==========================
+        # Context Builder
+        # ==========================
 
         self.context_builder = MemoryContextBuilder(
             retriever=self.retriever
         )
 
+        # ==========================
+        # Memory Pipeline
+        # ==========================
+
+        self.classifier = MemoryClassifier()
         self.extractor = MemoryExtractor()
         self.filter = MemoryFilter()
         self.scorer = MemoryScorer()
-        self.classifier = MemoryClassifier()
 
-
-    # =========================
+    # =====================================================
     # Conversation Memory
-    # =========================
+    # =====================================================
 
+    def add_system(self, content: str):
+        self.history.add_system(content)
 
-    def add_system(
-        self,
-        content: str
-    ):
-        """
-        添加 System Prompt
-        """
+    def add_user(self, content: str):
+        self.history.add_user(content)
 
-        self.history.add_system(
-            content
-        )
-
-
-
-    def add_user(
-        self,
-        content: str
-    ):
-        """
-        添加用户消息
-        """
-
-        self.history.add_user(
-            content
-        )
-
-
-
-    def add_assistant(
-        self,
-        content: str
-    ):
-        """
-        添加 Jarvis 回复
-        """
-
-        self.history.add_assistant(
-            content
-        )
-
-
+    def add_assistant(self, content: str):
+        self.history.add_assistant(content)
 
     def get_messages(self):
-        """
-        获取当前对话历史
-        """
-
         return self.history.get_messages()
 
-
-
-    # =========================
-    # Context Building
-    # =========================
-
-
-    def build_context(
-        self,
-        user_input=None,
-        limit=5
-    ):
-        """
-        构建当前 LLM 上下文。
-
-        注意:
-
-        返回的是临时 messages 副本。
-
-        Memory Context 不会写入 history，
-        避免污染长期对话。
-
-        """
-
-        messages = self.history.get_messages()
-
-
-
-        if not user_input:
-            return messages
-
-
-
-        memory_context = self.context_builder.build(
-            query=user_input,
-            limit=limit
-        )
-
-
-
-        if memory_context:
-
-            messages.insert(
-                0,
-                {
-                    "role": "system",
-                    "content": memory_context
-                }
-            )
-
-
-        return messages
-
-
-
     def clear_history(self):
-        """
-        清空当前会话
-        """
-
         self.history.clear()
 
+    # =====================================================
+    # Context
+    # =====================================================
+# =====================================================
+# Memory Context
+# =====================================================
 
-
-    # =========================
-    # Long Term Memory
-    # =========================
-
-
-    def remember(
+    def build_memory_context(
         self,
-        content: str,
+        user_input: str,
+        limit: int = 5,
     ):
         """
-        保存长期记忆
+        构建长期记忆上下文。
 
-        流程:
+        Parameters
+        ----------
+        user_input : str
+            当前用户输入。
 
-        Input
-        |
-        Extractor
-        |
-        Filter
-        |
-        Scorer
-        |
-        Classifier
-        |
-        Store
+        limit : int
+            最大召回数量。
+
+        Returns
+        -------
+        str | None
+            Memory Context 文本。
         """
 
-
-        fragments = self.extractor.extract(
-            content
+        return self.context_builder.build(
+            query=user_input,
+            limit=limit,
         )
 
-        items_to_add = []
 
-        for memory_content in fragments:
+    # =====================================================
+    # Long-Term Memory
+    # =====================================================
 
+    def remember_if_needed(
+        self,
+        content: str,
+        source: str = "user",
+    ) -> bool:
+        """
+        智能保存长期记忆。
 
-            if not self.filter.should_remember(
-                memory_content
-            ):
+        Pipeline
+
+            Input
+                │
+                ▼
+          Classifier
+                │
+                ▼
+          Extractor
+                │
+                ▼
+            Filter
+                │
+                ▼
+            Scorer
+                │
+                ▼
+             Store
+
+        Returns
+        -------
+        bool
+            是否成功写入长期记忆
+        """
+
+        memory_type = self.classifier.classify(content)
+
+        # classifier 可以主动拒绝记忆
+        if memory_type is None:
+            return False
+
+        fragments = self.extractor.extract(content)
+
+        items = []
+
+        for fragment in fragments:
+
+            if not self.filter.should_remember(fragment):
                 continue
 
-
-            memory_type = self.classifier.classify(
-                memory_content
-            )
-
             importance = self.scorer.score(
-                memory_content,
-                memory_type
+                fragment,
+                memory_type,
             )
-
 
             if importance <= 0:
                 continue
 
-
-            items_to_add.append(
+            items.append(
                 MemoryItem(
-                    content=memory_content,
+                    content=fragment,
                     memory_type=memory_type,
                     importance=importance,
-                    source="user"
+                    source=source,
                 )
             )
 
-        if items_to_add:
-            self.store.add_batch(
-                items_to_add
-            )
+        if not items:
+            return False
 
+        self.store.add_batch(items)
+
+        return True
+
+    # 为兼容旧代码保留接口
+    def remember(
+        self,
+        content: str,
+        source: str = "user",
+    ):
+        return self.remember_if_needed(
+            content=content,
+            source=source,
+        )
+
+    # =====================================================
+    # Retrieval
+    # =====================================================
 
     def recall(self):
         """
-        获取全部长期记忆
+        返回全部长期记忆。
         """
-
         return self.store.get_all()
-
-
 
     def search_memory(
         self,
         query: str,
-        limit=5
+        limit: int = 5,
     ):
         """
-        根据关键词搜索 Memory
+        根据查询检索长期记忆。
         """
-
         return self.retriever.search(
             query=query,
-            limit=limit
+            limit=limit,
         )

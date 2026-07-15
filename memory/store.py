@@ -189,22 +189,50 @@ class MemoryStore:
         memory: MemoryItem
     ):
 
+        self.add_batch([memory])
+
+
+
+    def add_batch(
+        self,
+        memories_to_add: list
+    ):
+        """
+        批量添加多条 MemoryItem。
+
+        只做一次 load / evict / save，
+        避免 remember() 对同一句话切分出的多个 fragment
+        逐条调用 add() 导致的重复全量文件 IO。
+        """
+
+        if not memories_to_add:
+            return
+
         memories = self.load()
 
-        content = memory.content.strip()
+        added_any = False
 
-        if not content:
+        for memory in memories_to_add:
+
+            content = memory.content.strip()
+
+            if not content:
+                continue
+
+            if self._is_duplicate(
+                memories,
+                content
+            ):
+                continue
+
+            memories.append(
+                memory.to_dict()
+            )
+
+            added_any = True
+
+        if not added_any:
             return
-
-        if self._is_duplicate(
-            memories,
-            content
-        ):
-            return
-
-        memories.append(
-            memory.to_dict()
-        )
 
         memories = self._evict_if_needed(
             memories

@@ -137,15 +137,13 @@ class MemoryExtractor:
         ]
 
 
-        for word in preference_words:
+        if text.startswith("我") and any(word in text for word in preference_words):
 
-            if text.startswith("我"):
-
-                return (
-                    "用户"
-                    +
-                    text[1:]
-                )
+            return (
+                "用户"
+                +
+                text[1:]
+            )
 
 
         # 项目信息

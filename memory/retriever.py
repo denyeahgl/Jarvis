@@ -66,13 +66,16 @@ class MemoryRetriever:
 
             common = query_words & content_words
 
-            score = (len(common)+memory.importance*0.2)
+            # 必须至少有一个关键词交集才算相关，
+            # 否则单靠 importance*0.2 也会让完全无关的记忆被召回
+            if not common:
+                continue
 
+            score = len(common) + memory.importance * 0.2
 
-            if score > 0:
-                results.append(
-                    (score, memory)
-                )
+            results.append(
+                (score, memory)
+            )
 
 
         results.sort(

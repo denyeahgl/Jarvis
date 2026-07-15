@@ -211,12 +211,13 @@ class MemoryManager:
         """
 
 
-        memories = self.extractor.extract(
+        fragments = self.extractor.extract(
             content
         )
 
+        items_to_add = []
 
-        for memory_content in memories:
+        for memory_content in fragments:
 
 
             if not self.filter.should_remember(
@@ -239,16 +240,18 @@ class MemoryManager:
                 continue
 
 
-            memory = MemoryItem(
-                content=memory_content,
-                memory_type=memory_type,
-                importance=importance,
-                source="user"
+            items_to_add.append(
+                MemoryItem(
+                    content=memory_content,
+                    memory_type=memory_type,
+                    importance=importance,
+                    source="user"
+                )
             )
 
-
-            self.store.add(
-                memory
+        if items_to_add:
+            self.store.add_batch(
+                items_to_add
             )
 
 

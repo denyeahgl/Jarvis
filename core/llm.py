@@ -1,13 +1,71 @@
-from openai import OpenAI
+"""
+core/llm.py
+
+Jarvis LLM Facade Layer
+
+Day13 (Refactor)
+
+职责：
+
+提供统一 LLM 调用接口。
+
+提供：
+
+1. chat()
+2. chat_json()
+
+不负责：
+
+- API 请求细节
+- JSON 解析
+- Retry
+- Provider 判断
+"""
+
+
+from __future__ import annotations
+
 
 from core.config import Config
+from core.logger import Logger
+
+from core.capability import CapabilityResolver
+from core.llm_response import LLMResponse
+
+
+
+# =====================================================
+# Initialize
+# =====================================================
+
 
 config = Config()
 
-client = OpenAI(
-    api_key=config.openai_api_key,
-    base_url=config.base_url,
+logger = Logger()
+
+
+capability = CapabilityResolver(
+    config
+).resolve()
+
+
+llm_client = LLMResponse(
+
+    model=config.model_name,
+
+    capability=capability,
+
+    # 显式传入 config，避免 LLMResponse 内部再 new 一份
+    # 导致两处配置不一致（单一数据源）。
+    config=config,
+
 )
+
+
+
+# =====================================================
+# Chat
+# =====================================================
 
 
 def chat(
@@ -18,65 +76,87 @@ def chat(
     return_message: bool = False,
 ):
     """
-    调用大模型。
+    普通聊天接口。
 
-    Args:
-        messages: OpenAI Chat API 消息列表
-        stream: 是否启用流式输出
-        tools: Tool Schema 列表
-        tool_choice: Tool Calling 策略
-        return_message: 是否返回完整的 message 对象（而非纯文本）。
-            Tool Calling 场景下必须为 True，因为需要读取
-            message.tool_calls 字段。仅在 stream=False 时生效。
+    保持 Day07-Day12 兼容。
 
-    Returns:
-        - 当 return_message=True 且 stream=False 时: 返回完整的
-          ChatCompletionMessage 对象（可访问 .content / .tool_calls）
-        - 其他情况: 返回 str（大模型完整回复文本）
+    Parameters
+    ----------
+
+    messages:
+        OpenAI messages 格式
+
+
+    stream:
+        是否流式输出
+
+
+    tools:
+        Tool Calling 工具列表
+
+
+    tool_choice:
+        tool 调用策略
+
+
+    return_message:
+        是否返回完整 message 对象
+
     """
 
-    params = {
-        "model": config.model_name,
-        "messages": messages,
-        "stream": stream,
-    }
+    return llm_client.chat(
 
-    if tools:
-        params["tools"] = tools
-        params["tool_choice"] = tool_choice or "auto"
+        messages=messages,
 
-    response = client.chat.completions.create(**params)
+        stream=stream,
 
-    # 非流式输出
-    if not stream:
-        message = response.choices[0].message
+        tools=tools,
 
-        # Tool Calling 场景：把完整 message 对象交给上层处理
-        if return_message:
-            return message
+        tool_choice=tool_choice,
 
-        return message.content
+        return_message=return_message,
 
-    # 流式输出（不支持 Tool Calling，只做纯文本流式打印）
-    print("Jarvis: ", end="", flush=True)
+    )
 
-    reply = []
 
-    for chunk in response:
-        if not chunk.choices:
-            continue
 
-        choice = chunk.choices[0]
+# =====================================================
+# JSON Chat
+# =====================================================
 
-        if choice.delta is None:
-            continue
 
-        delta = choice.delta.content
+def chat_json(
+    messages: list,
+    schema: dict | None = None,
+    retry: int = 1,
+):
+    """
+    JSON 输出接口。
 
-        if delta is None:
-            continue
+    Memory / Planner / Reflection 使用。
 
-        print(delta, end="", flush=True)
-        reply.append(delta)
 
-    return "".join(reply)
+    注意：
+
+    返回原始 JSON 字符串。
+
+    不在这里 json.loads。
+
+
+    Example:
+
+        text = chat_json(messages)
+
+        data = json.loads(text)
+
+    """
+
+    return llm_client.chat_json(
+
+        messages=messages,
+
+        schema=schema,
+
+        retry=retry,
+
+    )

@@ -1,124 +1,184 @@
 """
-manager.py
+memory/manager.py
 
 Jarvis Memory Manager
 
-负责统一管理：
+Day13 Migration Version
 
-1. Conversation Memory（短期记忆）
-2. Long-term Memory（长期记忆）
-3. Memory Retrieval（记忆检索）
-4. Memory Context（上下文构建）
+
+负责：
+
+1. Conversation Memory
+2. Long Term Memory Pipeline
+3. Memory Retrieval
+4. Context Support
+
+
+Pipeline:
+
+User Input
+
+    ↓
+
+MemoryExtractor (LLM)
+
+    ↓
+
+MemoryValidator
+
+    ↓
+
+MemoryStore
+
+
 """
 
+from __future__ import annotations
+
+
 from memory.history import MessageHistory
+
+
+from memory.extractor import MemoryExtractor
+from memory.validator import MemoryValidator
+
+
 from memory.store import MemoryStore
-from memory.schema import MemoryItem
 from memory.retriever import MemoryRetriever
 from memory.context import MemoryContextBuilder
-from memory.filter import MemoryFilter
-from memory.scorer import MemoryScorer
-from memory.classifier import MemoryClassifier
-from memory.extractor import MemoryExtractor
-from memory.embedding import embedding_model
+
+
+from core.logger import Logger
+
+
 
 class MemoryManager:
+
     """
     Jarvis Memory Manager
     """
 
     def __init__(self):
 
-        # ==========================
-        # Short-Term Memory
-        # ==========================
+        self.logger = Logger()
+
+
+        # =========================
+        # Short Term Memory
+        # =========================
 
         self.history = MessageHistory()
 
-        # ==========================
-        # Long-Term Memory
-        # ==========================
+
+
+        # =========================
+        # Long Term Memory
+        # =========================
 
         self.store = MemoryStore()
+
 
         self.retriever = MemoryRetriever(
             store=self.store
         )
 
-        # ==========================
-        # Context Builder
-        # ==========================
 
         self.context_builder = MemoryContextBuilder(
             retriever=self.retriever
         )
 
-        # ==========================
-        # Memory Pipeline
-        # ==========================
 
-        self.classifier = MemoryClassifier()
+
+        # =========================
+        # Day13 Pipeline
+        # =========================
+
         self.extractor = MemoryExtractor()
-        self.filter = MemoryFilter()
-        self.scorer = MemoryScorer()
 
-    # =====================================================
+
+        self.validator = MemoryValidator()
+
+
+
+    # ==================================================
     # Conversation Memory
-    # =====================================================
+    # ==================================================
 
-    def add_system(self, content: str):
-        self.history.add_system(content)
-
-    def add_user(self, content: str):
-        self.history.add_user(content)
-
-    def add_assistant(self, content: str):
-        self.history.add_assistant(content)
-
-    def get_messages(self):
-        return self.history.get_messages()
-
-    def clear_history(self):
-        self.history.clear()
-
-    # =====================================================
-    # Context
-    # =====================================================
-# =====================================================
-# Memory Context
-# =====================================================
-
-    def build_memory_context(
+    def add_message(
         self,
-        user_input: str,
-        limit: int = 5,
+        message: dict,
     ):
         """
-        构建长期记忆上下文。
-
-        Parameters
-        ----------
-        user_input : str
-            当前用户输入。
-
-        limit : int
-            最大召回数量。
-
-        Returns
-        -------
-        str | None
-            Memory Context 文本。
+        添加 OpenAI 格式消息
         """
 
-        return self.context_builder.build(
-            query=user_input,
-            limit=limit,
+        self.history.add_message(
+            message
         )
 
 
-    # =====================================================
-    # Long-Term Memory
-    # =====================================================
+
+    def add_system(
+        self,
+        content: str,
+    ):
+        """
+        添加 System Prompt
+        """
+
+        self.history.add_system(
+            content
+        )
+
+
+
+    def add_user(
+        self,
+        content: str,
+    ):
+        """
+        添加用户消息
+        """
+
+        self.history.add_user(
+            content
+        )
+
+
+
+    def add_assistant(
+        self,
+        content: str,
+    ):
+        """
+        添加助手消息
+        """
+
+        self.history.add_assistant(
+            content
+        )
+
+
+
+    def get_messages(self):
+        """
+        Runtime / ContextBuilder 调用接口
+
+        """
+
+        return self.history.get_messages()
+
+
+
+    def clear_history(self):
+
+        self.history.clear()
+
+
+
+    # ==================================================
+    # Day13 Long Term Memory Pipeline
+    # ==================================================
 
     def remember_if_needed(
         self,
@@ -126,113 +186,218 @@ class MemoryManager:
         source: str = "user",
     ) -> bool:
         """
-        智能保存长期记忆。
+        LLM Memory Pipeline
 
-        Pipeline
 
-            Input
-                │
-                ▼
-          Classifier
-                │
-                ▼
-          Extractor
-                │
-                ▼
-            Filter
-                │
-                ▼
-            Scorer
-                │
-                ▼
-             Store
+        User Input
 
-        Returns
-        -------
-        bool
-            是否成功写入长期记忆
+            ↓
+
+        Extractor
+
+            ↓
+
+        Validator
+
+            ↓
+
+        Store
+
+
         """
 
-        memory_type = self.classifier.classify(content)
 
-        # classifier 可以主动拒绝记忆
-        if memory_type is None:
+        if not content:
+
             return False
 
-        fragments = self.extractor.extract(content)
 
-        items = []
 
-        for fragment in fragments:
+        # --------------------------
+        # Extract
+        # --------------------------
 
-            if not self.filter.should_remember(fragment):
-                continue
+        try:
 
-            importance = self.scorer.score(
-                fragment,
-                memory_type,
+            memories = self.extractor.extract(
+                content
             )
 
-            if importance <= 0:
-                continue
 
+        except Exception as e:
 
-            try:
-                embedding = embedding_model.encode(fragment)
-
-            except Exception:
-                # embedding失败时放弃保存该记忆
-                continue
-
-            items.append(
-                MemoryItem(
-                    content=fragment,
-                    embedding=embedding,
-                    memory_type=memory_type,
-                    importance=importance,
-                    source=source,
-                )
+            self.logger.error(
+                f"Memory Extract失败: {e}"
             )
+
+            return False
+
+
+
+        if not memories:
+
+            return False
+
+
+
+        # --------------------------
+        # Validate
+        # --------------------------
+
+        try:
+
+            items = self.validator.validate(
+                memories,
+                source=source,
+            )
+
+
+        except Exception as e:
+
+            self.logger.error(
+                f"Memory Validate失败: {e}"
+            )
+
+            return False
 
 
 
         if not items:
+
             return False
 
-        self.store.add_batch(items)
+
+
+        # --------------------------
+        # Store
+        # --------------------------
+
+        try:
+
+            for item in items:
+
+                self.store.add(
+                    item
+                )
+
+
+        except Exception as e:
+
+            self.logger.error(
+                f"Memory Store失败: {e}"
+            )
+
+            return False
+
+
+
+        self.logger.info(
+            f"保存长期记忆 {len(items)} 条"
+        )
+
 
         return True
 
-    # 为兼容旧代码保留接口
-    def remember(
-        self,
-        content: str,
-        source: str = "user",
-    ):
-        return self.remember_if_needed(
-            content=content,
-            source=source,
-        )
 
-    # =====================================================
+
+    # ==================================================
     # Retrieval
-    # =====================================================
-
-    def recall(self):
-        """
-        返回全部长期记忆。
-        """
-        return self.store.get_all()
+    # ==================================================
 
     def search_memory(
         self,
         query: str,
         limit: int = 5,
     ):
-        """
-        根据查询检索长期记忆。
-        """
+
         return self.retriever.search(
+            query,
+            limit=limit,
+        )
+
+
+
+    # ==================================================
+    # Context
+    # ==================================================
+
+    def build_context(
+        self,
+        query: str,
+        limit: int = 5,
+    ):
+
+        return self.context_builder.build(
+            query,
+            limit=limit,
+        )
+
+    def build_memory_context(
+        self,
+        user_input: str = None,
+        query: str = None,
+        limit: int = 5,
+    ):
+        """
+        Agent ContextBuilder 兼容接口。
+
+        参数兼容：
+
+        user_input:
+            Agent Runtime传入
+
+        query:
+            内部调用备用
+
+
+        """
+
+        if query is None:
+
+            query = user_input
+
+
+        return self.context_builder.build(
             query=query,
             limit=limit,
         )
+
+    # ==================================================
+    # Debug
+    # ==================================================
+
+    def get_all_memory(self):
+
+        return self.store.get_all()
+
+
+
+    # ==================================================
+    # Day14 Placeholder
+    # ==================================================
+
+    def update_memory(
+        self,
+        memory_id,
+        content,
+    ):
+
+        raise NotImplementedError
+
+
+
+    def merge_memory(
+        self,
+        memory_ids,
+    ):
+
+        raise NotImplementedError
+
+
+
+    def delete_memory(
+        self,
+        memory_id,
+    ):
+
+        raise NotImplementedError

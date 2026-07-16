@@ -20,7 +20,7 @@ from memory.filter import MemoryFilter
 from memory.scorer import MemoryScorer
 from memory.classifier import MemoryClassifier
 from memory.extractor import MemoryExtractor
-
+from memory.embedding import embedding_model
 
 class MemoryManager:
     """
@@ -176,14 +176,25 @@ class MemoryManager:
             if importance <= 0:
                 continue
 
+
+            try:
+                embedding = embedding_model.encode(fragment)
+
+            except Exception:
+                # embedding失败时放弃保存该记忆
+                continue
+
             items.append(
                 MemoryItem(
                     content=fragment,
+                    embedding=embedding,
                     memory_type=memory_type,
                     importance=importance,
                     source=source,
                 )
             )
+
+
 
         if not items:
             return False

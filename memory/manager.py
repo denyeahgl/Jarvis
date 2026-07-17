@@ -3,15 +3,13 @@ memory/manager.py
 
 Jarvis Memory Manager
 
-Day13 Migration Version
+Day14 Migration Version
 
+新增:
 
-负责：
-
-1. Conversation Memory
-2. Long Term Memory Pipeline
-3. Memory Retrieval
-4. Context Support
+- SQLite Metadata Storage
+- BGE Embedding
+- FAISS Vector Storage
 
 
 Pipeline:
@@ -20,7 +18,7 @@ User Input
 
     ↓
 
-MemoryExtractor (LLM)
+MemoryExtractor
 
     ↓
 
@@ -28,10 +26,30 @@ MemoryValidator
 
     ↓
 
-MemoryStore
+MemoryItem
+
+    ↓
+
++----------------+
+|                |
+|                |
+
+MemoryStore     SQLite
+
+(JSON)          (Metadata)
+
+
+                  ↓
+
+              BGE Embedding
+
+                  ↓
+
+                FAISS
 
 
 """
+
 
 from __future__ import annotations
 
@@ -44,6 +62,14 @@ from memory.validator import MemoryValidator
 
 
 from memory.store import MemoryStore
+
+from memory.database import MemoryDatabase
+
+from memory.embedding import MemoryEmbedding
+
+from memory.vector_store import VectorStore
+
+
 from memory.retriever import MemoryRetriever
 from memory.context import MemoryContextBuilder
 
@@ -52,20 +78,27 @@ from core.logger import Logger
 
 
 
+
 class MemoryManager:
+
 
     """
     Jarvis Memory Manager
     """
 
+
+
     def __init__(self):
 
+
         self.logger = Logger()
+
 
 
         # =========================
         # Short Term Memory
         # =========================
+
 
         self.history = MessageHistory()
 
@@ -73,13 +106,43 @@ class MemoryManager:
 
         # =========================
         # Long Term Memory
+        # Day14 Semantic Memory
         # =========================
+
+
+        # 保留旧MemoryStore
+        # 兼容Day13
 
         self.store = MemoryStore()
 
 
+
+        # SQLite Metadata
+
+        self.database = MemoryDatabase()
+
+
+
+        # BGE Embedding
+
+        self.embedding = MemoryEmbedding()
+
+
+
+        # FAISS Vector Store
+
+        self.vector_store = VectorStore(
+            dimension=self.embedding.dimension
+        )
+
+
+
+
         self.retriever = MemoryRetriever(
-            store=self.store
+            store=self.store,
+            vector_store=self.vector_store,
+            database=self.database,
+            embedding=self.embedding,
         )
 
 
@@ -90,8 +153,9 @@ class MemoryManager:
 
 
         # =========================
-        # Day13 Pipeline
+        # Extract / Validate
         # =========================
+
 
         self.extractor = MemoryExtractor()
 
@@ -100,17 +164,17 @@ class MemoryManager:
 
 
 
+
+
     # ==================================================
     # Conversation Memory
     # ==================================================
+
 
     def add_message(
         self,
         message: dict,
     ):
-        """
-        添加 OpenAI 格式消息
-        """
 
         self.history.add_message(
             message
@@ -122,9 +186,6 @@ class MemoryManager:
         self,
         content: str,
     ):
-        """
-        添加 System Prompt
-        """
 
         self.history.add_system(
             content
@@ -136,9 +197,6 @@ class MemoryManager:
         self,
         content: str,
     ):
-        """
-        添加用户消息
-        """
 
         self.history.add_user(
             content
@@ -150,9 +208,6 @@ class MemoryManager:
         self,
         content: str,
     ):
-        """
-        添加助手消息
-        """
 
         self.history.add_assistant(
             content
@@ -161,10 +216,6 @@ class MemoryManager:
 
 
     def get_messages(self):
-        """
-        Runtime / ContextBuilder 调用接口
-
-        """
 
         return self.history.get_messages()
 
@@ -176,35 +227,18 @@ class MemoryManager:
 
 
 
+
+
     # ==================================================
-    # Day13 Long Term Memory Pipeline
+    # Day14 Long Term Memory Pipeline
     # ==================================================
+
 
     def remember_if_needed(
         self,
         content: str,
         source: str = "user",
     ) -> bool:
-        """
-        LLM Memory Pipeline
-
-
-        User Input
-
-            ↓
-
-        Extractor
-
-            ↓
-
-        Validator
-
-            ↓
-
-        Store
-
-
-        """
 
 
         if not content:
@@ -216,6 +250,7 @@ class MemoryManager:
         # --------------------------
         # Extract
         # --------------------------
+
 
         try:
 
@@ -240,9 +275,11 @@ class MemoryManager:
 
 
 
+
         # --------------------------
         # Validate
         # --------------------------
+
 
         try:
 
@@ -268,35 +305,93 @@ class MemoryManager:
 
 
 
+
+
         # --------------------------
         # Store
+        # Day14 Upgrade
         # --------------------------
+
 
         try:
 
+
             for item in items:
+
+
+
+                # ======================
+                # Old JSON Store
+                # ======================
+
 
                 self.store.add(
                     item
                 )
 
 
+
+                # ======================
+                # Generate Embedding
+                # ======================
+
+
+                vector = self.embedding.encode(
+                    item.content
+                )
+
+
+
+                item.embedding = vector
+
+
+
+
+                # ======================
+                # SQLite Metadata
+                # ======================
+
+
+                self.database.add(
+                    item.to_dict()
+                )
+
+
+
+                # ======================
+                # FAISS Vector
+                # ======================
+
+
+                self.vector_store.add(
+                    vector,
+                    item.id
+                )
+
+
+
         except Exception as e:
+
 
             self.logger.error(
                 f"Memory Store失败: {e}"
             )
 
+
             return False
 
 
 
+
         self.logger.info(
-            f"保存长期记忆 {len(items)} 条"
+            f"保存长期记忆 {len(items)} 条 (JSON + SQLite + FAISS)"
         )
 
 
+
         return True
+
+
 
 
 
@@ -304,11 +399,13 @@ class MemoryManager:
     # Retrieval
     # ==================================================
 
+
     def search_memory(
         self,
         query: str,
         limit: int = 5,
     ):
+
 
         return self.retriever.search(
             query,
@@ -317,9 +414,12 @@ class MemoryManager:
 
 
 
+
+
     # ==================================================
     # Context
     # ==================================================
+
 
     def build_context(
         self,
@@ -327,10 +427,14 @@ class MemoryManager:
         limit: int = 5,
     ):
 
+
         return self.context_builder.build(
             query,
             limit=limit,
         )
+
+
+
 
     def build_memory_context(
         self,
@@ -338,23 +442,12 @@ class MemoryManager:
         query: str = None,
         limit: int = 5,
     ):
-        """
-        Agent ContextBuilder 兼容接口。
 
-        参数兼容：
-
-        user_input:
-            Agent Runtime传入
-
-        query:
-            内部调用备用
-
-
-        """
 
         if query is None:
 
             query = user_input
+
 
 
         return self.context_builder.build(
@@ -362,9 +455,14 @@ class MemoryManager:
             limit=limit,
         )
 
+
+
+
+
     # ==================================================
     # Debug
     # ==================================================
+
 
     def get_all_memory(self):
 
@@ -372,9 +470,12 @@ class MemoryManager:
 
 
 
+
+
     # ==================================================
     # Day14 Placeholder
     # ==================================================
+
 
     def update_memory(
         self,
@@ -386,12 +487,14 @@ class MemoryManager:
 
 
 
+
     def merge_memory(
         self,
         memory_ids,
     ):
 
         raise NotImplementedError
+
 
 
 

@@ -1,111 +1,115 @@
 """
-Embedding Model
+Jarvis Memory Embedding
 
-负责：
-1. 文本向量化
-2. 批量向量化
-3. 提供统一 encode() 接口
+Day14
 
-后续如果切换到：
-- BGE
-- Jina
-- Voyage
-- SentenceTransformer
+使用:
+BAAI/bge-small-zh-v1.5
 
-仅需要修改本文件即可。
+职责:
+文本 -> 向量
+
+固定:
+512 dimension
 """
 
-from __future__ import annotations
+from sentence_transformers import SentenceTransformer
 
-from typing import List, Sequence, Union
-
-from openai import OpenAI
-
-from core.config import Config
 from core.logger import Logger
 
 
-class EmbeddingModel:
-    """统一的 Embedding 接口"""
 
-    def __init__(self, config: Config | None = None):
+class MemoryEmbedding:
 
-        self.config = config or Config()
 
-        self.client = OpenAI(
-            base_url=self.config.embedding_model_base_url,
-            api_key=self.config.embedding_model_api_key,
-        )
+    def __init__(
+        self,
+        model_name="BAAI/bge-small-zh-v1.5"
+    ):
 
-        # Logger 类没有 get_logger() 方法，直接实例化即可，
-        # 它自身提供 info()/error() 方法。
         self.logger = Logger()
 
-        self._dimension: int | None = None
+        self.logger.info(
+            f"Loading embedding model: {model_name}"
+        )
+
+
+        self.model = SentenceTransformer(
+            model_name
+        )
+
+
+        self._dimension = None
+
+
+        self.logger.info(
+            "Embedding model loaded"
+        )
 
     @property
-    def dimension(self) -> int:
-        """
-        返回Embedding维度。
+    def model_name(self):
+        return "BAAI/bge-small-zh-v1.5"
 
-        第一次调用时自动缓存，之后直接返回。
-        """
-        if self._dimension is None:
-            self._dimension = len(self.encode("dimension_test"))
 
-        return self._dimension
+    def validate_vector(
+        self,
+        vector
+    ):
+
+        if len(vector)!=self.dimension:
+
+            raise ValueError(
+                f"Embedding dimension error: "
+                f"{len(vector)}"
+            )
+
 
     def encode(
         self,
-        texts: Union[str, Sequence[str]]
-    ) -> Union[List[float], List[List[float]]]:
+        text:str
+    ) -> list[float]:
         """
-        文本向量化
-
-        Parameters
-        ----------
-        texts
-            str 或 List[str]
-
-        Returns
-        -------
-        List[float]
-            单条文本
-
-        List[List[float]]
-            多条文本
+        单文本embedding
         """
 
-        single_input = isinstance(texts, str)
+        vector = self.model.encode(
+            text,
+            normalize_embeddings=True
+        )
 
-        inputs = texts if not single_input else [texts]
 
-        try:
+        return vector.tolist()
 
-            response = self.client.embeddings.create(
-                model=self.config.embedding_model_name,
-                input=list(inputs),
+
+
+    def encode_batch(
+        self,
+        texts:list[str]
+    ) -> list[list[float]]:
+        """
+        批量embedding
+        """
+
+        vectors = self.model.encode(
+            texts,
+            normalize_embeddings=True
+        )
+
+
+        return vectors.tolist()
+
+
+
+    @property
+    def dimension(self):
+
+        if self._dimension is None:
+
+            self._dimension = len(
+                self.encode(
+                    "dimension test"
+                )
             )
 
-            vectors = [
-                item.embedding
-                for item in response.data
-            ]
 
-            if single_input:
-                return vectors[0]
-
-            return vectors
-
-        except Exception as e:
-
-            # Logger 类没有 exception() 方法，用 error() 代替，
-            # 手动把异常信息拼进消息里。
-            self.logger.error(
-                f"Embedding生成失败: {e}"
-            )
-
-            raise
-
-# 全局共享实例
-embedding_model = EmbeddingModel()
+        return self._dimension

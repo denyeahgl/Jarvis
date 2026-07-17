@@ -1,293 +1,370 @@
 """
-retriever.py
+memory/retriever.py
 
-Semantic Memory Retriever
+Jarvis Memory Retriever
 
-负责：
+Day14 Semantic Retrieval
 
-1. Query Embedding
-2. Semantic Retrieval
-3. Cosine Similarity
-4. Memory Ranking
-5. Top-K Memory
+优先:
+
+Query
+ |
+BGE
+ |
+FAISS
+ |
+memory_id
+ |
+SQLite
+
+
+Fallback:
+
+Old Store
+ |
+cosine similarity
+
 """
 
 
-from math import sqrt
+from typing import List
 
-from memory.embedding import embedding_model
-from memory.store import MemoryStore
+
+import numpy as np
+
+
+
+from memory.schema import MemoryItem
+
+
 
 
 class MemoryRetriever:
-    """Semantic Memory Retriever"""
 
-
-    # Memory Ranking 权重
-    #
-    # Day11.5:
-    #
-    # semantic:
-    #   语义相关程度
-    #
-    # importance:
-    #   记忆重要程度
-    #
-    # Future:
-    #   recency
-    #   access_count
-    #
-    SCORE_WEIGHTS = {
-        "semantic": 0.8,
-        "importance": 0.2,
-    }
 
 
     def __init__(
         self,
-        store: MemoryStore | None = None,
+        store=None,
+        vector_store=None,
+        database=None,
         embedding=None,
     ):
 
-        self.store = store or MemoryStore()
 
-        # embedding.py 里导出的是全局单例 embedding_model（EmbeddingModel 实例），
-        # 而不是一个叫 Embedding 的类，这里复用单例即可。
-        self.embedding = embedding or embedding_model
+        self.store = store
 
+        self.vector_store = vector_store
 
+        self.database = database
 
-    def retrieve(
-        self,
-        query: str,
-        top_k: int = 3,
-        threshold: float = 0.45,
-    ):
-        """
-        根据 Query 检索长期记忆
-
-
-        Args:
-
-            query:
-                用户问题
-
-            top_k:
-                返回数量
-
-            threshold:
-                最低语义相似度
-
-
-        Returns:
-
-            list[MemoryItem]
-
-        """
-
-        query = query.strip()
-
-
-        if not query:
-            return []
-
-
-        memories = self.store.get_all()
-
-
-        if not memories:
-            return []
+        self.embedding = embedding
 
 
 
-        # Query 向量化
-        # EmbeddingModel 提供的统一接口方法名是 encode()，不是 embed()
-
-        query_embedding = self.embedding.encode(
-            query
-        )
 
 
-        ranked_memories = []
-
-
-
-        for memory in memories:
-
-
-            # 没有 embedding 的旧记忆跳过
-
-            if not memory.embedding:
-                continue
-
-
-
-            semantic_score = self.cosine_similarity(
-                query_embedding,
-                memory.embedding,
-            )
-
-
-
-            # 过滤低相关记忆
-
-            if semantic_score < threshold:
-                continue
-
-
-
-            final_score = self._calculate_score(
-                semantic_score,
-                memory,
-            )
-
-
-            ranked_memories.append(
-                (
-                    final_score,
-                    memory,
-                )
-            )
-
-
-
-        # 最终 Memory Ranking
-
-        ranked_memories.sort(
-            key=lambda x: x[0],
-            reverse=True,
-        )
-
-
-
-        return [
-            memory
-            for _, memory in ranked_memories[:top_k]
-        ]
-
+    # ==================================================
+    # Main Search
+    # ==================================================
 
 
     def search(
         self,
         query: str,
         limit: int = 5,
-        threshold: float = 0.45,
-    ):
-        """
-        兼容 MemoryManager / MemoryContextBuilder 的调用接口。
+    ) -> List[MemoryItem]:
 
-        它们调用的是 retriever.search(query=, limit=)，
-        这里作为 retrieve() 的别名，仅做参数名转换。
+
+        """
+        优先使用 FAISS
+
+        失败则 fallback
         """
 
-        return self.retrieve(
-            query=query,
-            top_k=limit,
-            threshold=threshold,
+
+
+        # -------------------------
+        # FAISS Semantic Search
+        # -------------------------
+
+
+        if (
+            self.vector_store
+            and self.embedding
+        ):
+
+
+            try:
+
+                return self.semantic_search(
+                    query,
+                    limit
+                )
+
+
+            except Exception:
+
+                pass
+
+
+
+
+        # -------------------------
+        # fallback
+        # -------------------------
+
+
+        return self.keyword_search(
+            query,
+            limit
         )
 
 
 
-    def _calculate_score(
+
+
+    # ==================================================
+    # Day14 Semantic Search
+    # ==================================================
+
+
+    def semantic_search(
         self,
-        semantic_score: float,
-        memory,
-    ) -> float:
-        """
-        Memory Ranking
+        query: str,
+        limit: int = 5,
+    ):
 
 
-        Day11.5:
-
-
-        Final Score =
-
-
-            semantic_score * 0.8
-
-            +
-
-            importance_score * 0.2
-
-
-        """
-
-
-
-        # importance 归一化
-
-        importance_score = min(
-            memory.importance / 10.0,
-            1.0,
+        vector = self.embedding.encode(
+            query
         )
 
 
 
-        return (
+        results = self.vector_store.search(
+            vector,
+            top_k=limit
+        )
 
-            semantic_score
-            *
-            self.SCORE_WEIGHTS["semantic"]
-
-            +
-
-            importance_score
-            *
-            self.SCORE_WEIGHTS["importance"]
-
+        print(
+            "FAISS RESULT:",
+            results
         )
 
 
 
-    @staticmethod
-    def cosine_similarity(
-        vector_a: list[float],
-        vector_b: list[float],
-    ) -> float:
-        """
-        计算余弦相似度
-        """
-
-
-        if len(vector_a) != len(vector_b):
-
-            return 0.0
+        memories=[]
 
 
 
-        dot = sum(
-            a * b
-            for a, b in zip(
-                vector_a,
-                vector_b,
+        for result in results:
+
+
+            memory_id = result[
+                "memory_id"
+            ]
+
+
+
+            # SQLite
+
+            if self.database:
+
+
+                data = self.database.get(
+                    memory_id
+                )
+
+
+                if data:
+
+
+                    memories.append(
+                        self._dict_to_memory(
+                            data
+                        )
+                    )
+
+
+
+            # fallback JSON
+
+            elif self.store:
+
+
+                item = self._find_from_store(
+                    memory_id
+                )
+
+
+                if item:
+
+                    memories.append(
+                        item
+                    )
+
+
+
+        return memories
+
+
+
+
+
+    # ==================================================
+    # Old Retrieval fallback
+    # ==================================================
+
+
+    def keyword_search(
+        self,
+        query: str,
+        limit: int = 5,
+    ):
+
+
+        if not self.store:
+
+            return []
+
+
+
+        memories = self.store.get_all()
+
+
+
+        query_words = set(
+            query.lower().split()
+        )
+
+
+
+        scored=[]
+
+
+
+        for memory in memories:
+
+
+            text = memory.content.lower()
+
+
+            score = sum(
+                1
+                for word in query_words
+                if word in text
             )
-        )
 
 
 
-        norm_a = sqrt(
-            sum(
-                a * a
-                for a in vector_a
+            scored.append(
+                (
+                    score,
+                    memory
+                )
             )
+
+
+
+        scored.sort(
+            key=lambda x:x[0],
+            reverse=True
         )
 
 
-        norm_b = sqrt(
-            sum(
-                b * b
-                for b in vector_b
+
+        return [
+            item[1]
+            for item in scored[:limit]
+        ]
+
+
+
+
+
+    # ==================================================
+    # Helpers
+    # ==================================================
+
+
+    def _dict_to_memory(
+        self,
+        data: dict
+    ) -> MemoryItem:
+
+
+        return MemoryItem(
+
+            id=data["id"],
+
+            content=data["content"],
+
+            memory_type=data.get(
+                "memory_type"
+            ),
+
+            importance=data.get(
+                "importance",
+                1
+            ),
+
+            created_at=data.get(
+                "created_at"
+            ),
+
+            updated_at=data.get(
+                "updated_at"
+            ),
+
+        )
+
+
+
+
+
+    def _find_from_store(
+        self,
+        memory_id
+    ):
+
+
+        if not self.store:
+
+            return None
+
+
+
+        memories = self.store.get_all()
+
+
+
+        for memory in memories:
+
+            if memory.id == memory_id:
+
+                return memory
+
+
+
+        return None
+
+
+
+
+
+    # ==================================================
+    # Utility
+    # ==================================================
+
+
+    def count(self):
+
+        if self.store:
+
+            return len(
+                self.store.get_all()
             )
-        )
 
 
-
-        if norm_a == 0 or norm_b == 0:
-
-            return 0.0
-
-
-
-        return dot / (
-            norm_a * norm_b
-        )
+        return 0

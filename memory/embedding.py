@@ -12,7 +12,7 @@ BAAI/bge-small-zh-v1.5
 固定:
 512 dimension
 """
-
+import torch
 from sentence_transformers import SentenceTransformer
 
 from core.logger import Logger
@@ -33,9 +33,16 @@ class MemoryEmbedding:
             f"Loading embedding model: {model_name}"
         )
 
+        self.logger.info(
+            f"Embedding device: {'cuda' if torch.cuda.is_available() else 'cpu'}"
+        )
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
 
         self.model = SentenceTransformer(
-            model_name
+            model_name,
+            device=device
         )
 
 

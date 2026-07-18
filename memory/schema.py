@@ -63,7 +63,7 @@ class MemoryItem:
 
     memory_type: str = "fact"
 
-    importance: int = 3
+    importance: float = 3.0
 
     source: str = "user"
 
@@ -159,10 +159,10 @@ class MemoryItem:
                 "fact",
             ),
 
-            importance=int(
+            importance=float(
                 data.get(
                     "importance",
-                    3,
+                    3.0,
                 )
             ),
 
@@ -232,7 +232,7 @@ class MemoryItem:
     def update(
         self,
         content: str | None = None,
-        importance: int | None = None,
+        importance: float | None = None,
         memory_type: str | None = None,
     ):
         """

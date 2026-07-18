@@ -3,26 +3,59 @@ memory/retriever.py
 
 Jarvis Memory Retriever
 
-Day14 Semantic Retrieval
+Day15.3
 
-优先:
+Features:
+
+Day15.2:
+- Semantic Retrieval
+- Importance-aware Ranking
+
+
+Day15.3:
+- Memory Lifecycle
+- Access Reinforcement
+- Persistence Update
+
+
+
+Pipeline:
+
 
 Query
- |
-BGE
- |
-FAISS
- |
-memory_id
- |
-SQLite
 
-
-Fallback:
-
-Old Store
  |
-cosine similarity
+
+Embedding
+
+ |
+
+FAISS Candidate Search
+
+ |
+
+Memory Metadata
+
+ |
+
+Retrieval Scorer
+
+ |
+
+Ranking
+
+ |
+
+Lifecycle Touch
+
+ |
+
+SQLite Update
+
+ |
+
+Return Memory
+
 
 """
 
@@ -30,11 +63,12 @@ cosine similarity
 from typing import List
 
 
-import numpy as np
-
-
-
 from memory.schema import MemoryItem
+
+from memory.retrieval_scorer import RetrievalScorer
+
+from memory.lifecycle import MemoryLifecycle
+
 
 
 
@@ -62,6 +96,20 @@ class MemoryRetriever:
 
 
 
+        # Day15.2
+        # Importance Ranking
+
+        self.scorer = RetrievalScorer()
+
+
+
+        # Day15.3
+        # Memory Lifecycle
+
+        self.lifecycle = MemoryLifecycle()
+
+
+
 
 
     # ==================================================
@@ -77,16 +125,10 @@ class MemoryRetriever:
 
 
         """
-        优先使用 FAISS
+        Semantic Search 优先
 
-        失败则 fallback
+        fallback keyword
         """
-
-
-
-        # -------------------------
-        # FAISS Semantic Search
-        # -------------------------
 
 
         if (
@@ -103,16 +145,14 @@ class MemoryRetriever:
                 )
 
 
-            except Exception:
-
-                pass
+            except Exception as e:
 
 
+                print(
+                    "Semantic Search Error:",
+                    e
+                )
 
-
-        # -------------------------
-        # fallback
-        # -------------------------
 
 
         return self.keyword_search(
@@ -125,7 +165,8 @@ class MemoryRetriever:
 
 
     # ==================================================
-    # Day14 Semantic Search
+    # Semantic Search
+    # Day15.2 + Day15.3
     # ==================================================
 
 
@@ -136,16 +177,27 @@ class MemoryRetriever:
     ):
 
 
+
         vector = self.embedding.encode(
             query
         )
 
 
 
+        # -------------------------
+        # Candidate Retrieval
+        # -------------------------
+
+
+        candidate_k = limit * 3
+
+
         results = self.vector_store.search(
             vector,
-            top_k=limit
+            top_k=candidate_k
         )
+
+
 
         print(
             "FAISS RESULT:",
@@ -154,16 +206,32 @@ class MemoryRetriever:
 
 
 
-        memories=[]
+        scored_memories = []
 
+
+
+        # -------------------------
+        # Load Metadata
+        # -------------------------
 
 
         for result in results:
 
 
+
             memory_id = result[
                 "memory_id"
             ]
+
+
+            semantic_score = result.get(
+                "score",
+                0
+            )
+
+
+
+            memory = None
 
 
 
@@ -179,41 +247,110 @@ class MemoryRetriever:
 
                 if data:
 
-
-                    memories.append(
-                        self._dict_to_memory(
-                            data
-                        )
+                    memory = self._dict_to_memory(
+                        data
                     )
 
 
 
-            # fallback JSON
+            # JSON fallback
 
             elif self.store:
 
 
-                item = self._find_from_store(
+                memory = self._find_from_store(
                     memory_id
                 )
 
 
-                if item:
 
-                    memories.append(
-                        item
+            if memory:
+
+
+
+                final_score = self.scorer.score(
+                    memory,
+                    semantic_score
+                )
+
+
+
+                print(
+                    "MEMORY SCORE:",
+                    memory.content,
+                    final_score
+                )
+
+
+
+                scored_memories.append(
+                    (
+                        final_score,
+                        memory
                     )
+                )
 
 
 
-        return memories
+
+
+        # -------------------------
+        # Ranking
+        # -------------------------
+
+
+        scored_memories.sort(
+            key=lambda x:x[0],
+            reverse=True
+        )
+
+
+
+        # -------------------------
+        # Day15.3 Lifecycle Touch
+        # -------------------------
+
+
+        final_memories=[]
+
+
+
+        for score, memory in scored_memories[:limit]:
+
+
+            # Memory 被使用
+
+            memory = self.lifecycle.touch(
+                memory
+            )
+
+
+
+            # 保存生命周期状态
+
+            if self.database:
+
+
+                self.database.update_memory(
+                    memory
+                )
+
+
+
+            final_memories.append(
+                memory
+            )
+
+
+
+        return final_memories
 
 
 
 
 
     # ==================================================
-    # Old Retrieval fallback
+    # Keyword fallback
     # ==================================================
 
 
@@ -222,6 +359,7 @@ class MemoryRetriever:
         query: str,
         limit: int = 5,
     ):
+
 
 
         if not self.store:
@@ -247,13 +385,19 @@ class MemoryRetriever:
         for memory in memories:
 
 
+
             text = memory.content.lower()
 
 
+
             score = sum(
+
                 1
+
                 for word in query_words
+
                 if word in text
+
             )
 
 
@@ -274,10 +418,32 @@ class MemoryRetriever:
 
 
 
-        return [
-            item[1]
-            for item in scored[:limit]
-        ]
+        final=[]
+
+
+
+        for score,memory in scored[:limit]:
+
+
+            memory = self.lifecycle.touch(
+                memory
+            )
+
+
+            if self.database:
+
+                self.database.update_memory(
+                    memory
+                )
+
+
+            final.append(
+                memory
+            )
+
+
+
+        return final
 
 
 
@@ -304,14 +470,36 @@ class MemoryRetriever:
                 "memory_type"
             ),
 
+
             importance=data.get(
                 "importance",
-                1
+                3.0
             ),
+
+
+            confidence=float(
+                data.get(
+                    "confidence",
+                    1.0
+                )
+            ),
+
+            access_count=int(
+                data.get(
+                    "access_count",
+                    0
+                )
+            ),
+
+            last_accessed=data.get(
+                "last_accessed"
+            ),
+
 
             created_at=data.get(
                 "created_at"
             ),
+
 
             updated_at=data.get(
                 "updated_at"
@@ -329,6 +517,7 @@ class MemoryRetriever:
     ):
 
 
+
         if not self.store:
 
             return None
@@ -340,6 +529,7 @@ class MemoryRetriever:
 
 
         for memory in memories:
+
 
             if memory.id == memory_id:
 
@@ -360,7 +550,9 @@ class MemoryRetriever:
 
     def count(self):
 
+
         if self.store:
+
 
             return len(
                 self.store.get_all()

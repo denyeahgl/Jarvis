@@ -72,8 +72,10 @@ from memory.vector_store import VectorStore
 
 from memory.retriever import MemoryRetriever
 from memory.context import MemoryContextBuilder
-
-
+from memory.dedup import DedupEngine
+from memory.conflict import MemoryConflictDetector
+from memory.decision import MemoryDecisionEngine
+from memory.schema import MemoryItem
 from core.logger import Logger
 
 
@@ -136,6 +138,34 @@ class MemoryManager:
         )
 
 
+        # =========================
+        # Day15 Memory Dedup
+        # =========================
+
+        self.dedup_engine = DedupEngine(
+            threshold=0.85
+        )
+
+
+        self.conflict_detector = MemoryConflictDetector(
+
+            vector_store=self.vector_store,
+
+            embedding=self.embedding,
+
+            database=self.database
+
+        )
+
+
+
+        self.decision_engine = MemoryDecisionEngine(
+
+            dedup=self.dedup_engine,
+
+            conflict=self.conflict_detector
+
+        )
 
 
         self.retriever = MemoryRetriever(
@@ -315,19 +345,60 @@ class MemoryManager:
 
         try:
 
-
+            saved_count = 0
             for item in items:
 
 
-
                 # ======================
-                # Old JSON Store
+                # Day15.4 Decision Engine
+                #
+                # 注意:
+                #
+                # 这里查候选Memory是给
+                # Dedup / Conflict 用的，
+                # 不是给用户看的检索结果。
+                #
+                # 所以不能用 self.retriever.search()
+                # (它是 RetrievalScorer 混合排序,
+                #  且会触发 lifecycle.touch(),
+                #  污染 importance / access_count)
+                #
+                # 直接用 vector_store 做纯embedding
+                # 相似度召回。
                 # ======================
 
 
-                self.store.add(
+                candidate_items = self._get_candidates(
                     item
                 )
+
+
+
+                decision = self.decision_engine.decide(
+
+                    item,
+
+                    candidate_items
+
+                )
+
+
+
+                self.logger.info(
+                    f"Memory Decision: "
+                    f"{decision.decision.value}"
+                )
+
+
+
+                if decision.decision.value == "duplicate":
+
+
+                    self.logger.info(
+                        f"跳过重复Memory: {item.content}"
+                    )
+
+                    continue
 
 
 
@@ -341,9 +412,18 @@ class MemoryManager:
                 )
 
 
-
                 item.embedding = vector
 
+
+
+                # ======================
+                # Old JSON Store
+                # ======================
+
+
+                self.store.add(
+                    item
+                )
 
 
 
@@ -368,6 +448,7 @@ class MemoryManager:
                     item.id
                 )
 
+                saved_count += 1
 
 
         except Exception as e:
@@ -381,15 +462,134 @@ class MemoryManager:
             return False
 
 
-
-
+        
         self.logger.info(
-            f"保存长期记忆 {len(items)} 条 (JSON + SQLite + FAISS)"
+            f"保存长期记忆 {saved_count} 条 (JSON + SQLite + FAISS)"
         )
 
 
 
         return True
+
+
+
+
+    # ==================================================
+    # Day15.4 Candidate Lookup (Dedup / Conflict only)
+    # ==================================================
+
+
+    def _get_candidates(
+        self,
+        item,
+        top_k: int = 5,
+    ):
+        """
+        为 Dedup / Conflict 查候选Memory。
+
+        与 self.retriever.search() 的区别:
+
+        retriever.search():
+            面向用户检索，走 RetrievalScorer
+            (semantic + importance + confidence 混排)，
+            并且会调用 lifecycle.touch() 强化
+            access_count / importance —— 这是给
+            "用户确实用到了这条记忆" 场景用的。
+
+        _get_candidates():
+            纯 embedding 相似度召回，只是内部用来
+            判断新Memory是否重复/冲突，不代表这条
+            旧Memory真的被检索/使用了，
+            所以不应该触发 lifecycle 强化。
+        """
+
+        candidate_items = []
+
+
+        if (
+            self.vector_store is None
+            or self.embedding is None
+        ):
+
+            return candidate_items
+
+
+
+        try:
+
+            vector = self.embedding.encode(
+                item.content
+            )
+
+
+            raw_hits = self.vector_store.search(
+                vector,
+                top_k=top_k
+            )
+
+
+        except Exception as e:
+
+            self.logger.error(
+                f"Candidate Search失败: {e}"
+            )
+
+            return candidate_items
+
+
+
+        for hit in raw_hits:
+
+
+            memory_id = hit.get(
+                "memory_id"
+            )
+
+
+            if not memory_id:
+
+                continue
+
+
+
+            data = self.database.get(
+                memory_id
+            )
+
+
+            if not data:
+
+                continue
+
+
+
+            memory_item = MemoryItem.from_dict(
+                data
+            )
+
+
+
+            # 从 FAISS 恢复 embedding
+            # (SQLite 里不存 embedding)
+
+            vector = self.vector_store.get_vector(
+                memory_id
+            )
+
+
+            if vector:
+
+                memory_item.embedding = vector
+
+
+
+            candidate_items.append(
+                memory_item
+            )
+
+
+
+        return candidate_items
 
 
 

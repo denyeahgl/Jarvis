@@ -136,6 +136,45 @@ class VectorStore:
         return results
 
 
+    def get_vector(
+        self,
+        memory_id: str
+    ):
+        """
+        根据 memory_id 获取 embedding 向量
+        """
+
+        try:
+
+            if memory_id not in self.id_mapping:
+
+                return None
+
+
+            index_id = self.id_mapping.index(
+                memory_id
+            )
+
+
+            vector = self.index.reconstruct(
+                index_id
+            )
+
+
+            return vector.tolist()
+
+
+        except Exception as e:
+
+            print(
+                f"Get vector error: {e}"
+            )
+
+            return None
+
+
+
+
 
     def save(self):
 

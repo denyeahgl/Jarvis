@@ -458,6 +458,69 @@ Examples:
 
 
 =====================================================
+Entity Key (structured slot, Day18 / Phase 3)
+=====================================================
+
+
+For SOME memories, also assign an entity_key: a normalized,
+stable identifier for a SINGLE-VALUED slot about the user that
+can be overwritten later (the user's favorite color changes,
+their job changes, their hometown doesn't -- all still ONE
+current value at a time).
+
+
+Format rules:
+
+- lowercase snake_case
+- must start with "user_"
+- English words only, no Chinese, no specific values
+- reuse a common key below whenever it fits, instead of
+  inventing a new synonym for the same concept
+
+
+Common keys (reuse these, do not invent synonyms):
+
+user_name
+user_occupation
+user_hometown
+user_birthday
+user_favorite_color
+user_favorite_sport
+user_favorite_team
+user_favorite_food
+user_favorite_programming_language
+user_current_employer
+user_current_city
+
+
+Only assign entity_key when the memory truly is a single
+current value that a later message could overwrite.
+
+
+Do NOT assign entity_key to:
+
+- one-off events (ç¨æ·æ¨å¤©å»äºåäº¬åºå·®)
+- multi-valued things the user can have several of at once
+  (projects, skills, goals -- ç¨æ·æ­£å¨å¼åJarvis)
+- anything you are not confident maps to one of the concepts above
+
+
+When in doubt, leave entity_key as null -- a wrong/missing
+entity_key just falls back to normal similarity matching, but a
+wrong key that LOOKS confident can silently overwrite unrelated
+memories.
+
+
+Examples:
+
+ç¨æ·åæ¬¢èè² -> entity_key: "user_favorite_color"
+
+ç¨æ·æ¯ä¸ååç«¯å·¥ç¨å¸ -> entity_key: "user_occupation"
+
+ç¨æ·æ­£å¨å¼åJarvis -> entity_key: null
+
+
+=====================================================
 Output Format
 =====================================================
 
@@ -477,7 +540,8 @@ Schema:
     {
         "content": "...",
         "memory_type": "...",
-        "importance": 5
+        "importance": 5,
+        "entity_key": "user_favorite_color" or null
     }
 ]
 

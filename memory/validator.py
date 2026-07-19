@@ -40,6 +40,9 @@ MemoryItem
 from __future__ import annotations
 
 
+import re
+
+
 from memory.schema import MemoryItem
 
 
@@ -165,6 +168,15 @@ class MemoryValidator:
 
 
 
+        # Day18 / Phase 3 新增
+        entity_key = self._entity_key(
+            data.get(
+                "entity_key"
+            )
+        )
+
+
+
         return MemoryItem(
 
             content=content,
@@ -176,6 +188,8 @@ class MemoryValidator:
             source=source,
 
             confidence=confidence,
+
+            entity_key=entity_key,
 
         )
 
@@ -282,6 +296,63 @@ class MemoryValidator:
             "fact"
 
         )
+
+
+
+    # Day18 / Phase 3
+
+    _ENTITY_KEY_PATTERN = re.compile(
+        r"^user_[a-z0-9_]+$"
+    )
+
+    def _entity_key(
+        self,
+        value,
+    ) -> str | None:
+        """
+        标准化 entity_key。
+
+        LLM 输出的这个字段不受信任——格式不对/明显不像一个
+        归一化 key 的，一律丢弃成 None，而不是把脏数据存进
+        结构化索引里。丢弃后并不会丢功能，只是那一条记忆会
+        退化成纯向量相似度判重/判冲突/判合并，这正是目标
+        文档里说的"查不到再退化到向量相似度兜底"。
+
+        规则：
+
+        - 必须是字符串，去空白后非空
+        - 转小写
+        - 必须匹配 ^user_[a-z0-9_]+$
+          （只允许小写字母/数字/下划线，且以 user_ 开头，
+          避免把中文原文、句子、或者格式古怪的字符串
+          当成 key 存进去）
+        - 长度上限 64（防止 LLM 抽风输出一整句话）
+        """
+
+        if not value:
+
+            return None
+
+
+        value = str(value).strip().lower()
+
+
+        if not value:
+
+            return None
+
+
+        if len(value) > 64:
+
+            return None
+
+
+        if not self._ENTITY_KEY_PATTERN.match(value):
+
+            return None
+
+
+        return value
 
 
 

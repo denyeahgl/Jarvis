@@ -1,24 +1,32 @@
 """
 Jarvis Memory Database
 
-Day14
+Day16 (Phase 1: 结构化字段 + 版本链基础设施)
 
 SQLite Metadata Storage
 
 负责:
 - 保存memory metadata
 - 查询memory内容
+- Day16新增: entity_key 精确匹配 / status 状态迁移 / 版本链维护
 
 不负责:
 - embedding
 - vector search
+（这两个仍然在 vector_store.py，Phase 1 会给它加 delete/update，
+  但那是另一个文件，这里不动）
 """
 
 
 import sqlite3
 import os
 from datetime import datetime
-from memory.schema import MemoryItem
+from memory.schema import (
+    MemoryItem,
+    STATUS_ACTIVE,
+    STATUS_SUPERSEDED,
+    STATUS_ARCHIVED,
+)
 
 
 
@@ -52,6 +60,8 @@ class MemoryDatabase:
 
     def create_table(self):
 
+        # 新建的库直接带上 Day16 的全部字段；
+        # 老库靠下面 migrate() 里的 ALTER TABLE 补齐。
         sql = """
 
         CREATE TABLE IF NOT EXISTS memories (
@@ -72,7 +82,17 @@ class MemoryDatabase:
 
             created_at TEXT,
 
-            updated_at TEXT
+            updated_at TEXT,
+
+            version INTEGER DEFAULT 1,
+
+            entity_key TEXT,
+
+            status TEXT DEFAULT 'active',
+
+            superseded_by TEXT,
+
+            parent_id TEXT
 
         )
 
@@ -86,10 +106,64 @@ class MemoryDatabase:
         self.conn.commit()
 
 
+    # =====================================================
+    # Migrate
+    # =====================================================
+
+    def _existing_columns(self):
+        """
+        查当前表已有哪些列。
+
+        用来判断 ALTER TABLE ADD COLUMN 是不是真的需要，
+        而不是像之前那样无差别 try/except: pass ——
+        那样会把"列已存在"（预期内）和其他真实错误
+        （比如库文件损坏、磁盘只读）混在一起悄悄吞掉。
+        """
+
+        cursor = self.conn.cursor()
+
+        cursor.execute(
+            "PRAGMA table_info(memories)"
+        )
+
+        return {
+            row["name"]
+            for row in cursor.fetchall()
+        }
+
+
+    def _add_column_if_missing(
+        self,
+        column_name,
+        column_def,
+    ):
+
+        if column_name in self._existing_columns():
+
+            return
+
+
+        cursor = self.conn.cursor()
+
+        cursor.execute(
+            f"ALTER TABLE memories "
+            f"ADD COLUMN {column_name} {column_def}"
+        )
+
+        self.conn.commit()
+
+
     def migrate(self):
 
-        cursor=self.conn.cursor()
+        # -----------------------------------------------
+        # Day14 已有字段
+        #
+        # 保留原来的 try/except 写法，兼容 Day14/15 就已经
+        # 建好、且可能被其他分支/环境同时使用的旧库文件，
+        # 不改动这部分的行为。
+        # -----------------------------------------------
 
+        cursor = self.conn.cursor()
 
         try:
 
@@ -100,7 +174,7 @@ class MemoryDatabase:
                 """
             )
 
-        except:
+        except Exception:
 
             pass
 
@@ -115,7 +189,7 @@ class MemoryDatabase:
                 """
             )
 
-        except:
+        except Exception:
 
             pass
 
@@ -130,12 +204,61 @@ class MemoryDatabase:
                 """
             )
 
-        except:
+        except Exception:
 
             pass
 
         self.conn.commit()
 
+
+        # -----------------------------------------------
+        # Day16 新增字段（Phase 1）
+        #
+        # 用 _add_column_if_missing 而不是裸 try/except，
+        # 这样如果 ALTER 因为别的原因失败（不是"列已存在"），
+        # 错误会真的抛出来，不会被静默吞掉。
+        # -----------------------------------------------
+
+        self._add_column_if_missing(
+            "version",
+            "INTEGER DEFAULT 1",
+        )
+
+        self._add_column_if_missing(
+            "entity_key",
+            "TEXT",
+        )
+
+        self._add_column_if_missing(
+            "status",
+            "TEXT DEFAULT 'active'",
+        )
+
+        self._add_column_if_missing(
+            "superseded_by",
+            "TEXT",
+        )
+
+        self._add_column_if_missing(
+            "parent_id",
+            "TEXT",
+        )
+
+        # 老库里在加 status 列之前插入的行，status 会是 NULL
+        # （ALTER TABLE ADD COLUMN 的 DEFAULT 只对之后的 INSERT
+        # 生效，不会回填已有的行）。这里补一次，避免后面
+        # find_by_entity_key() / 按 status 过滤的查询漏掉旧数据。
+
+        cursor.execute(
+            """
+            UPDATE memories
+            SET status = ?
+            WHERE status IS NULL
+            """,
+            (STATUS_ACTIVE,)
+        )
+
+        self.conn.commit()
 
 
     def add(
@@ -150,7 +273,12 @@ class MemoryDatabase:
             id,
             content,
             memory_type,
-            importance
+            importance,
+            entity_key,
+            status,
+            superseded_by,
+            parent_id,
+            version,
         }
         """
 
@@ -177,11 +305,21 @@ class MemoryDatabase:
             access_count,
             last_accessed,
             created_at,
-            updated_at
+            updated_at,
+            version,
+            entity_key,
+            status,
+            superseded_by,
+            parent_id
         )
 
         VALUES
         (
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
             ?,
             ?,
             ?,
@@ -231,13 +369,34 @@ class MemoryDatabase:
 
                 now,
 
-                now
+                now,
+
+                memory.get(
+                    "version",
+                    1
+                ),
+
+                memory.get(
+                    "entity_key"
+                ),
+
+                memory.get(
+                    "status",
+                    STATUS_ACTIVE
+                ) or STATUS_ACTIVE,
+
+                memory.get(
+                    "superseded_by"
+                ),
+
+                memory.get(
+                    "parent_id"
+                ),
             )
         )
 
         self.conn.commit()
 
- 
 
     def delete(
         self,
@@ -259,7 +418,6 @@ class MemoryDatabase:
         self.conn.commit()
 
 
-
     def count(self):
 
         cursor=self.conn.cursor()
@@ -275,6 +433,44 @@ class MemoryDatabase:
 
         return cursor.fetchone()[0]
 
+
+    # =====================================================
+    # Row -> dict
+    # =====================================================
+
+    def _row_to_dict(self, row):
+
+        return {
+
+            "id": row["id"],
+
+            "content": row["content"],
+
+            "memory_type": row["memory_type"],
+
+            "importance": row["importance"],
+
+            "confidence": row["confidence"],
+
+            "access_count": row["access_count"],
+
+            "last_accessed": row["last_accessed"],
+
+            "created_at": row["created_at"],
+
+            "updated_at": row["updated_at"],
+
+            "version": row["version"],
+
+            "entity_key": row["entity_key"],
+
+            "status": row["status"],
+
+            "superseded_by": row["superseded_by"],
+
+            "parent_id": row["parent_id"],
+
+        }
 
 
     def get(
@@ -312,39 +508,96 @@ class MemoryDatabase:
 
 
 
-        return {
+        return self._row_to_dict(row)
 
 
-            "id": row["id"],
+    # =====================================================
+    # Day16: Structured Key Lookup
+    # =====================================================
+
+    def find_by_entity_key(
+        self,
+        entity_key,
+        active_only=True,
+    ):
+        """
+        按归一化 entity_key 精确查。
+
+        Phase 3（结构化字段辅助检索）会用这个方法：
+        写入新记忆前先查 entity_key，命中就直接当作同一实体处理，
+        不需要再退化到向量相似度兜底。
+
+        active_only=True 时只返回 status="active" 的记忆——
+        已经 superseded/archived 的旧版本不应该再被当成"当前值"
+        参与判重。
+
+        返回: list[dict]，可能为空列表。
+        """
+
+        if not entity_key:
+
+            return []
 
 
-            "content": row["content"],
+        cursor = self.conn.cursor()
 
 
-            "memory_type": row["memory_type"],
+        if active_only:
+
+            cursor.execute(
+                """
+                SELECT *
+                FROM memories
+                WHERE entity_key = ?
+                AND status = ?
+                """,
+                (entity_key, STATUS_ACTIVE)
+            )
+
+        else:
+
+            cursor.execute(
+                """
+                SELECT *
+                FROM memories
+                WHERE entity_key = ?
+                """,
+                (entity_key,)
+            )
 
 
-            "importance": row["importance"],
+        return [
+            self._row_to_dict(row)
+            for row in cursor.fetchall()
+        ]
 
 
-            "confidence": row["confidence"],
+    def list_by_status(
+        self,
+        status=STATUS_ACTIVE,
+    ):
+        """
+        按状态批量取记忆。
 
+        主要给 Day19 的定期整理任务（consolidator）用：
+        遍历全部 active 记忆做聚类/衰减检查。
+        """
 
-            "access_count": row["access_count"],
+        cursor = self.conn.cursor()
 
+        cursor.execute(
+            """
+            SELECT *
+            FROM memories
+            WHERE status = ?
+            """,
+            (status,)
+        )
 
-            "last_accessed": row["last_accessed"],
-
-
-            "created_at": row["created_at"],
-
-
-            "updated_at": row["updated_at"],
-
-
-        }
-
-
+        return [
+            self._row_to_dict(row)
+            for row in cursor.fetchall()
+        ]
 
 
     def update_memory(
@@ -356,6 +609,9 @@ class MemoryDatabase:
 
         更新生命周期数据
 
+        （不变：只更新 importance/confidence/access_count/
+        last_accessed/updated_at，不涉及 content/status/
+        version chain —— 那些交给下面 Day16 新增的几个方法。）
         """
 
         sql = """
@@ -389,7 +645,6 @@ class MemoryDatabase:
         )
             
 
-
         cursor.execute(
             sql,
             (
@@ -407,6 +662,146 @@ class MemoryDatabase:
             )
         )
 
+
+        self.conn.commit()
+
+
+    # =====================================================
+    # Day16: Content Update (原地覆盖，不走版本链)
+    # =====================================================
+
+    def update_content(
+        self,
+        memory_id,
+        content,
+        bump_version=True,
+    ):
+        """
+        原地覆盖记忆内容。
+
+        对应 Phase 2 UPDATE 决策里"同一条记忆内容小幅修正、
+        不需要保留旧版本"的场景，例如纠正一个笔误。
+
+        如果需要保留旧版本、走版本链（"用户偏好从蓝色变成了
+        绿色"这种要可追溯的更新），应该用 mark_superseded() +
+        单独 add() 一条新记忆，而不是这个方法。
+
+        调用方需要自己同步更新 FAISS 里对应的向量
+        （这里只管 SQLite metadata）。
+        """
+
+        now = datetime.now().isoformat()
+
+        cursor = self.conn.cursor()
+
+        if bump_version:
+
+            cursor.execute(
+                """
+                UPDATE memories
+                SET
+                    content = ?,
+                    version = version + 1,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (content, now, memory_id)
+            )
+
+        else:
+
+            cursor.execute(
+                """
+                UPDATE memories
+                SET
+                    content = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (content, now, memory_id)
+            )
+
+        self.conn.commit()
+
+
+    # =====================================================
+    # Day16: Version Chain (supersede / archive)
+    # =====================================================
+
+    def mark_superseded(
+        self,
+        old_memory_id,
+        new_memory_id,
+    ):
+        """
+        把旧记忆标记为已被新记忆取代。
+
+        对应 Phase 2 的 UPDATE / MERGE 决策：旧记忆不物理删除，
+        只做状态迁移，保留版本链方便追溯/调试/回滚。
+
+        这里只负责 SQLite 这一侧的两条记录（老记录的
+        status/superseded_by，新记录的 parent_id）。
+        调用方（manager.py）还需要自己：
+        - 把旧记忆的向量从 vector_store 摘掉/替换
+        - 如果新记忆这时还没写库，要先 add() 再调用这个方法
+        """
+
+        now = datetime.now().isoformat()
+
+        cursor = self.conn.cursor()
+
+        cursor.execute(
+            """
+            UPDATE memories
+            SET
+                status = ?,
+                superseded_by = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (STATUS_SUPERSEDED, new_memory_id, now, old_memory_id)
+        )
+
+        cursor.execute(
+            """
+            UPDATE memories
+            SET
+                parent_id = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (old_memory_id, now, new_memory_id)
+        )
+
+        self.conn.commit()
+
+
+    def mark_archived(
+        self,
+        memory_id,
+    ):
+        """
+        归档：Day19 定期整理任务用，标记长期未访问/
+        重要度衰减到阈值以下的记忆。
+
+        区别于 mark_superseded()——archive 不是因为有新记忆
+        取代它，只是因为它"不再重要"，所以没有 superseded_by。
+        """
+
+        now = datetime.now().isoformat()
+
+        cursor = self.conn.cursor()
+
+        cursor.execute(
+            """
+            UPDATE memories
+            SET
+                status = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (STATUS_ARCHIVED, now, memory_id)
+        )
 
         self.conn.commit()
 

@@ -264,7 +264,10 @@ class MemoryRetriever:
 
 
 
-            if memory:
+            # Day17.2 Bugfix
+            # 已经 superseded/archived 的旧记忆不应该
+            # 再出现在用户检索结果里。
+            if memory and memory.status == "active":
 
 
 
@@ -386,6 +389,14 @@ class MemoryRetriever:
 
 
 
+            # Day17.2 Bugfix
+            # 同上：跳过已经 superseded/archived 的旧记忆
+            if getattr(memory, "status", "active") != "active":
+
+                continue
+
+
+
             text = memory.content.lower()
 
 
@@ -503,6 +514,30 @@ class MemoryRetriever:
 
             updated_at=data.get(
                 "updated_at"
+            ),
+
+            entity_key=data.get(
+                "entity_key"
+            ),
+
+            status=data.get(
+                "status",
+                "active"
+            ) or "active",
+
+            version=int(
+                data.get(
+                    "version",
+                    1
+                )
+            ),
+
+            superseded_by=data.get(
+                "superseded_by"
+            ),
+
+            parent_id=data.get(
+                "parent_id"
             ),
 
         )

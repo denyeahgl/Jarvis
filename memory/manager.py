@@ -76,6 +76,7 @@ from memory.dedup import DedupEngine
 from memory.conflict import MemoryConflictDetector
 from memory.merge import MergeEngine
 from memory.decision import MemoryDecisionEngine
+from memory.consolidator import MemoryConsolidator
 from memory.schema import MemoryItem
 from core.logger import Logger
 
@@ -177,6 +178,32 @@ class MemoryManager:
             conflict=self.conflict_detector,
 
             merge=self.merge_engine,
+
+        )
+
+
+        # Day19 / Phase 4
+        # 定期整理: 聚类合并存量碎片记忆 + 真正调度
+        # lifecycle.decay()/should_archive()。
+        #
+        # 复用同一套 database/vector_store/embedding/
+        # merge_engine 实例，不新开连接——否则 SQLite/FAISS
+        # 会出现两份不同步的状态。
+        #
+        # 不在这里自动调度定时任务（这个类不知道、也不该
+        # 假设部署环境用的是 cron 还是 APScheduler 还是别的），
+        # 只负责提供 run_consolidation() 这个可以被外部
+        # 调度器调用的入口——具体多久调一次由外部决定。
+
+        self.consolidator = MemoryConsolidator(
+
+            database=self.database,
+
+            vector_store=self.vector_store,
+
+            embedding=self.embedding,
+
+            merge_engine=self.merge_engine,
 
         )
 
@@ -944,6 +971,31 @@ class MemoryManager:
     def get_all_memory(self):
 
         return self.store.get_all()
+
+
+
+    # ==================================================
+    # Day19 / Phase 4: Consolidation
+    # ==================================================
+
+
+    def run_consolidation(self) -> dict:
+        """
+        跑一次定期整理（聚类合并 + decay/archive）。
+
+        这是 MemoryConsolidator.run() 的薄封装，暴露在
+        MemoryManager 上是为了让外部调度器（cron 脚本 /
+        APScheduler job / 手动运维命令）不需要知道
+        consolidator/database/vector_store 这些内部组件怎么
+        拼起来——跟这个类已经拥有的 remember_if_needed() /
+        search_memory() 一样，只是又一个对外的入口方法。
+
+        返回 MemoryConsolidator.run() 产出的结构化日志
+        （decayed / archived / merged / errors），
+        由调用方决定要不要落盘或者上报。
+        """
+
+        return self.consolidator.run()
 
 
 

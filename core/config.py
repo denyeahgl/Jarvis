@@ -17,4 +17,10 @@ class Config:
         self.embedding_model_api_key = os.getenv("EMBEDDING_MODEL_API_KEY", self.openai_api_key)
         self.embedding_model_base_url = os.getenv("EMBEDDING_MODEL_BASE_URL", self.base_url)
 
-        
+        # tools/web/toolconfig.py 追加
+        self.search_provider = os.getenv("SEARCH_PROVIDER", "tavily")
+        self.tavily_api_key = os.getenv("TAVILY_API_KEY")
+        self.web_search_max_results = int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))
+        self.web_fetch_timeout = float(os.getenv("WEB_FETCH_TIMEOUT", "10"))
+        self.web_fetch_max_chars = int(os.getenv("WEB_FETCH_MAX_CHARS", "6000"))
+        self.web_cache_ttl = int(os.getenv("WEB_CACHE_TTL", "300"))

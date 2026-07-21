@@ -576,6 +576,42 @@ class MemoryRetriever:
 
 
 
+    # ==================================================
+    # Day19.1 Bugfix: Version History
+    # ==================================================
+
+
+    def get_history(
+        self,
+        memory_id,
+    ):
+        """
+        返回 memory_id 所在版本链的完整历史（含已经
+        superseded 的旧版本），从最旧到最新排序。
+
+        跟 semantic_search()/keyword_search() 刻意不同：
+        那两个方法查的是"现在有效的记忆"，按
+        status="active" 过滤；这个方法查的是"这件事的历史"，
+        不做 status 过滤 ---- 两者服务于不同的问题("现在是什么" vs
+        "以前是什么/怎么变的")，不应该共用同一条过滤规则。
+        """
+
+        if not self.database:
+
+            return []
+
+
+        rows = self.database.get_version_chain(
+            memory_id
+        )
+
+
+        return [
+            self._dict_to_memory(row)
+            for row in rows
+        ]
+
+
 
 
     # ==================================================

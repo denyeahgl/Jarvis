@@ -806,6 +806,72 @@ class MemoryDatabase:
         self.conn.commit()
 
 
+    # =====================================================
+    # Day19.1 Bugfix: Version History
+    #
+    # 生产环境里发现: "用户是广西大学学生" superseded 掉
+    # "用户是一名高中生" 之后，问"我上大学前是什么身份"完全
+    # 召回不到——不是这条旧记忆丢了，它还在库里，只是
+    # status="superseded" 之后，检索路径 (retriever.py 那次
+    # Day17.2 修复) 把它过滤掉了，而且没有任何地方能把它
+    # 重新捞回来。目标文档里说"保留版本链而不是物理删除"，
+    # 但只是保留在数据库里、没有对外的查询接口，等于还是
+    # 丢了——这个方法就是补上这个查询接口。
+    # =====================================================
+
+    def get_version_chain(
+        self,
+        memory_id,
+    ):
+        """
+        沿 parent_id 反向走到底，返回 memory_id 所在版本链的
+        完整历史，从最旧到最新排序，不受 status 限制
+        （查的就是历史，不能按 active 过滤）。
+
+        返回 list[dict]，如果 memory_id 不存在则返回空列表。
+        """
+
+        current = self.get(memory_id)
+
+        if not current:
+
+            return []
+
+
+        chain = [current]
+
+        seen_ids = {current["id"]}
+
+        node = current
+
+        while node.get("parent_id"):
+
+            parent_id = node["parent_id"]
+
+            if parent_id in seen_ids:
+
+                # 防御性处理: 正常不该出现环，但脏数据/手工
+                # 改库不能排除，宁可提前截断也不要死循环。
+                break
+
+            parent = self.get(parent_id)
+
+            if not parent:
+
+                break
+
+            chain.append(parent)
+
+            seen_ids.add(parent_id)
+
+            node = parent
+
+
+        chain.reverse()
+
+        return chain
+
+
     def close(self):
 
         self.conn.close()

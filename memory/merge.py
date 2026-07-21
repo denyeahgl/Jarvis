@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Callable, List, Optional
 import logging
+import os
 
 import numpy as np
 
@@ -97,7 +98,7 @@ class MergeEngine:
         chat_json_fn: Optional[Callable] = None,
         min_similarity: float = 0.55,
         max_similarity: float = 0.92,
-        min_text_overlap: float = 0.15,
+        min_text_overlap: float = 0.30,
     ):
 
         """
@@ -124,11 +125,33 @@ class MergeEngine:
 
         min_text_overlap:
 
-            SequenceMatcher 字面相似度下限，过滤掉
-            "embedding 相似但字面完全不搭"的噪声情况——
-            目标文档里提到的"纯向量阈值法很脆弱，短文本 embedding
-            相似度本身噪声大"，这里用字面重叠做一次兜底校验，
-            不是单靠一个向量阈值定生死。
+            Day19.1 Bugfix
+
+            原来的实现直接对完整 content 算 SequenceMatcher
+            ratio，默认阈值 0.15。这个数字看起来很保守，实际上
+            几乎形同虚设——这个系统里几乎所有记忆都是"用户+谓语"
+            的固定句式，光是共享的"用户"这个前缀就足以把 ratio
+            顶到 0.15 以上，跟两句话真正说的是不是同一件事完全
+            没关系。生产环境里就是这样把"用户是广西大学学生"和
+            "用户正在为助手提供联网能力"这两条毫不相关的记忆
+            合并到了一起。
+
+            现在改成：先去掉两条 content 的公共前缀
+            (os.path.commonprefix)，再对剩下的部分算 ratio——
+            "用户"这种共享开头不再计入相似度，真正比较的是
+            "去掉主语之后，两句话剩下的内容像不像"。同时把默认
+            阈值从 0.15 提到 0.30。
+
+            用真实案例验证过这个组合的区分度：
+            - "是广西大学学生" vs "正在为助手提供联网能力"
+              (去掉"用户"前缀后) -> 0.0，正确挡住
+            - "是广西大学学生" vs "是一名高中生"
+              (去掉"用户是"前缀后) -> 0.18，也正确挡住
+              (这种身份变化应该走 Update/Conflict，不该被
+              MergeEngine 拿去粗暴拼接成一句自相矛盾的话)
+            - "在北京工作" vs "在北京一家科技公司工作"
+              (去掉"用户在北京"前缀后) -> 0.40，正确保留
+              (这才是真正的互补信息)
 
         chat_json_fn:
 
@@ -203,17 +226,40 @@ class MergeEngine:
             ):
                 continue
 
-            text_overlap = SequenceMatcher(
-                None,
+            # Day19.1 Bugfix
+            #
+            # entity_key 都有值但不一样 -> 明确是两个不同的
+            # 结构化槽位，不应该被 MergeEngine 拼到一起
+            # (哪怕 embedding/文本恰好比较像)。entity_key 相同
+            # 的情况理论上已经在 decision.py 更早的 Update
+            # 分支被拦截了，走不到这里；这里只处理"两边都设了
+            # 但不相等"这一种情况，属于防御性检查。
+
+            new_key = getattr(
+                new_memory, "entity_key", None
+            )
+
+            old_key = getattr(
+                old_memory, "entity_key", None
+            )
+
+            if (
+                new_key
+                and old_key
+                and new_key != old_key
+            ):
+                continue
+
+            text_overlap = self._text_overlap(
                 new_memory.content,
                 old_memory.content,
-            ).ratio()
+            )
 
             if text_overlap < self.min_text_overlap:
 
-                # embedding 说像，字面完全不像
-                # -> 大概率是 embedding 噪声，
-                # 不认为是同一话题的互补信息。
+                # embedding 说像，去掉公共前缀之后字面完全不像
+                # -> 大概率是共享了"用户+谓语"这种固定句式，
+                # 不代表两句话说的是同一件事。
                 continue
 
             self.logger.info(
@@ -367,6 +413,41 @@ class MergeEngine:
     # =================================================
     # Utils
     # =================================================
+
+    def _text_overlap(
+        self,
+        a: str,
+        b: str,
+    ) -> float:
+        """
+        Day19.1 Bugfix
+
+        先去掉两条 content 的公共前缀，再算 SequenceMatcher
+        ratio——不这样做的话，这个系统里几乎所有记忆共享的
+        "用户"开头会把 ratio 系统性地垫高，让这个本该是
+        "字面完全不像就别合并"的安全阀失效。
+
+        用 os.path.commonprefix 而不是硬编码"用户"两个字：
+        这个系统目前的记忆确实都是中文"用户+谓语"句式，但
+        写死"用户"只解决了眼前这一个字符串，公共前缀是更通用
+        的做法，换一种记忆措辞风格也不会失效。
+        """
+
+        prefix = os.path.commonprefix(
+            [a, b]
+        )
+
+        a_rest = a[len(prefix):]
+
+        b_rest = b[len(prefix):]
+
+        return SequenceMatcher(
+            None,
+            a_rest,
+            b_rest,
+        ).ratio()
+
+
 
     def _cosine(
         self,

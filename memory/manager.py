@@ -918,6 +918,27 @@ class MemoryManager:
 
 
 
+    # Day19.1 Bugfix
+
+    def get_memory_history(
+        self,
+        memory_id: str,
+    ):
+        """
+        查一条记忆完整的版本历史（含已经 superseded 的旧版本），
+        从最旧到最新排序。
+
+        跟 search_memory() 的区别：search_memory() 只返回
+        "现在有效"的记忆；这个方法专门用来回答"以前是什么/
+        怎么变的"这类问题，不受 status 过滤。
+        """
+
+        return self.retriever.get_history(
+            memory_id
+        )
+
+
+
 
 
     # ==================================================

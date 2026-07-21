@@ -10,6 +10,9 @@ LLM Context Builder
 System Prompt
 ↓
 
+Anchor Context（时间/用户偏好，每轮刷新）
+↓
+
 Memory Context
 ↓
 
@@ -31,6 +34,7 @@ class ContextBuilder:
 
     负责：
 
+    - Anchor Context（确定性锚点信息）
     - Conversation History
     - Memory Context
     - Current User Message
@@ -40,9 +44,10 @@ class ContextBuilder:
         messages[]
     """
 
-    def __init__(self, memory):
+    def __init__(self, memory, anchor=None):
 
         self.memory = memory
+        self.anchor = anchor
 
     # ==================================================
     # Public
@@ -82,6 +87,21 @@ class ContextBuilder:
         if not user_input:
             return messages
 
+        insert_at = self._system_insert_index(messages)
+
+        # 插入 Anchor Context（每轮重新 render，保证时间等信息不过期）
+        if self.anchor:
+
+            messages.insert(
+                insert_at,
+                {
+                    "role": "system",
+                    "content": self.anchor.render(),
+                },
+            )
+
+            insert_at += 1
+
         # 构建 Memory Context
         memory_context = self.memory.build_memory_context(
             user_input=user_input,
@@ -92,7 +112,7 @@ class ContextBuilder:
         if memory_context:
 
             messages.insert(
-                self._system_insert_index(messages),
+                insert_at,
                 {
                     "role": "system",
                     "content": memory_context,
@@ -120,7 +140,7 @@ class ContextBuilder:
         messages: list[dict],
     ) -> int:
         """
-        Memory Context 放到 System Prompt 后。
+        Anchor / Memory Context 放到 System Prompt 后。
 
         Returns
         -------

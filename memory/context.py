@@ -65,6 +65,20 @@ class MemoryContextBuilder:
         """
         MemoryItem列表
         转换成 Prompt文本
+
+        Day19.1 Bugfix:
+
+        如果一条记忆有 parent_id（说明它是从旧记忆更新/合并
+        而来的），把它的历史版本也带上，格式类似
+        "现在的事实 (此前: 更早的事实)"。
+
+        不这样做的话，"用户是广西大学学生" superseded 掉
+        "用户是一名高中生" 之后，"我上大学前是什么身份"这类
+        问题永远答不出来——旧记忆并没有被物理删除，只是
+        检索默认只看 status="active"，历史版本无处可查。
+        这里不去猜"用户是不是在问历史"，而是让历史版本始终
+        跟着它对应的当前事实一起出现在 context 里，
+        由下游的LLM自己判断要不要用。
         """
 
         lines = []
@@ -72,8 +86,32 @@ class MemoryContextBuilder:
 
         for memory in memories:
 
+            line = f"- {memory.content}"
+
+
+            parent_id = getattr(
+                memory, "parent_id", None
+            )
+
+            if parent_id and self.retriever:
+
+                history = self.retriever.get_history(
+                    parent_id
+                )
+
+                if history:
+
+                    history_text = "；".join(
+                        m.content for m in history
+                    )
+
+                    line += (
+                        f"（此前: {history_text}）"
+                    )
+
+
             lines.append(
-                f"- {memory.content}"
+                line
             )
 
 
